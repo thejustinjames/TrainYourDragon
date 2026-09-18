@@ -325,7 +325,8 @@ def cmd_studio(args: argparse.Namespace) -> int:
         iters=args.iters or iters,
         name=name,
     )
-    serve(runs, host=args.host, port=args.port, open_browser=not args.no_open)
+    if_busy = args.if_busy or ("ask" if sys.stdin.isatty() else "next")
+    serve(runs, host=args.host, port=args.port, open_browser=not args.no_open, if_busy=if_busy)
     return 0
 
 
@@ -501,6 +502,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8790)
     s.add_argument("--no-open", action="store_true", help="do not open a browser")
+    s.add_argument(
+        "--if-busy",
+        choices=["ask", "next", "kill", "fail"],
+        help="what to do if the port is taken (default: ask at a terminal, next otherwise)",
+    )
     s.set_defaults(func=cmd_studio)
 
     s = sub.add_parser("gguf", help="a GGUF export, for Ollama on any machine")

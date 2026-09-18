@@ -126,14 +126,15 @@ choosing which checkpoint to keep.
 ## Watch it train
 
 ```bash
-dragon studio
+bash scripts/studio.sh        # or: dragon studio
 ```
 
 A page on localhost that draws the loss curve live, marks each checkpoint,
 estimates the time left and says in plain words what the numbers mean — where
 the low point is, whether memorisation has started, how many passes over the
 corpus so far. Read-only, no dependencies, and it works on a run started by
-hand: [docs/studio.md](docs/studio.md).
+hand. If the port is taken it tells you by what and offers to end it or move.
+[docs/studio.md](docs/studio.md).
 
 ## Use it from other tools
 

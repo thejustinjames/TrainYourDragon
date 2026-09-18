@@ -13,6 +13,10 @@ All notable changes to this project are recorded here. The format follows
   what the numbers mean, and works on any `mlx_lm.lora` log, config or not.
   Every `train*.log` in the project is a tab, and the other runs' validation
   curves can be overlaid on the current one.
+- The studio carries the Agencie.io Labs mark, header and footer, and its
+  typefaces. `scripts/studio.sh` starts it; a taken port is reported by
+  process and the studio offers to end it, move to the next free port, or take
+  one you type (`--if-busy ask|next|kill|fail`).
 - `dragon gguf`: GGUF export through llama.cpp's converter and `llama-quantize`,
   with the `template`, `system` and `params` files Ollama reads from a Hub
   repository. `dragon publish --gguf` uploads it, so `ollama run hf.co/<repo>`

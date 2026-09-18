@@ -71,6 +71,19 @@ instead.
 **It is confidently wrong about your own products.** Same document. Recall
 pairs help; retrieval is the honest fix.
 
+## The studio
+
+**Port 8790 is in use.** At a terminal the studio says by what and asks
+whether to end it, move to the next port, or quit; type a number to pick one.
+Elsewhere it moves on its own. `--if-busy` and `--port` set it explicitly.
+
+**The page loads but says "studio not reachable".** The server it was opened
+from has gone. `bash scripts/studio.sh` again.
+
+**No previous runs in the tabs.** Only `train*.log` files in the project are
+found. Keep an old log as `train-run1.log` (and its adapters as
+`adapters-run1/`) before starting the next run.
+
 ## Publishing
 
 **`not signed in to Hugging Face`** —

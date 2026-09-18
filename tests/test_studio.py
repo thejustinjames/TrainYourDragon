@@ -6,6 +6,7 @@ import urllib.request
 import pytest
 
 from dragon import studio
+from dragon.errors import DragonError
 from dragon.studio import Paths, snapshot
 
 LOG = """Loading pretrained model
@@ -98,7 +99,7 @@ def test_the_page_and_the_api_are_served(tmp_path):
     try:
         port = server.server_address[1]
         body = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=3).read().decode()
-        assert "<title>Observability studio</title>" in body
+        assert "<title>Observability studio · Agencie.io Labs</title>" in body
         raw = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=3).read()
         state = json.loads(raw)
         assert state["iteration"] == 200 and state["stage"] == "training"
@@ -181,3 +182,82 @@ def test_the_runs_index_and_run_selection_are_served(tmp_path):
         server.shutdown()
         server.server_close()
     del paths
+
+
+def _occupy(port):
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("127.0.0.1", port))
+    s.listen(1)
+    return s
+
+
+def test_a_free_port_is_returned_as_is():
+    port = studio.next_free_port("127.0.0.1", 40000)
+    assert studio.choose_port("127.0.0.1", port, if_busy="fail") == port
+
+
+def test_a_busy_port_moves_to_the_next_free_one_or_fails():
+    port = studio.next_free_port("127.0.0.1", 41000)
+    held = _occupy(port)
+    try:
+        said = []
+        chosen = studio.choose_port("127.0.0.1", port, if_busy="next", say=said.append)
+        assert chosen > port and studio.port_free("127.0.0.1", chosen)
+        assert any(str(port) in line for line in said)
+        with pytest.raises(DragonError, match=f"port {port} is in use"):
+            studio.choose_port("127.0.0.1", port, if_busy="fail")
+    finally:
+        held.close()
+
+
+def test_asking_offers_end_another_or_a_typed_port():
+    port = studio.next_free_port("127.0.0.1", 42000)
+    held = _occupy(port)
+    try:
+        alt = studio.next_free_port("127.0.0.1", port)
+        assert studio.choose_port("127.0.0.1", port, ask=lambda _: "a", say=lambda *_: None) == alt
+        typed = studio.next_free_port("127.0.0.1", alt)
+        assert (
+            studio.choose_port("127.0.0.1", port, ask=lambda _: str(typed), say=lambda *_: None)
+            == typed
+        )
+        with pytest.raises(DragonError, match="stopped"):
+            studio.choose_port("127.0.0.1", port, ask=lambda _: "q", say=lambda *_: None)
+    finally:
+        held.close()
+
+
+def test_ending_the_occupant_frees_the_port():
+    import shutil
+    import subprocess
+    import sys
+    import time
+
+    if not shutil.which("lsof"):
+        pytest.skip("lsof is needed to find the port's owner")
+    port = studio.next_free_port("127.0.0.1", 43000)
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import socket,time; s=socket.socket(); "
+            f"s.bind(('127.0.0.1',{port})); s.listen(1); time.sleep(30)",
+        ]
+    )
+    try:
+        for _ in range(50):
+            if not studio.port_free("127.0.0.1", port):
+                break
+            time.sleep(0.1)
+        owners = studio.port_owner(port)
+        assert child.pid in [pid for pid, _ in owners]
+        said = []
+        assert studio.choose_port("127.0.0.1", port, if_busy="kill", say=said.append) == port
+        child.wait(timeout=5)
+        assert any("ended" in line for line in said)
+    finally:
+        if child.poll() is None:
+            child.kill()

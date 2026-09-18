@@ -21,6 +21,7 @@ from typing import Any
 
 import yaml
 
+from dragon.errors import DragonError
 from dragon.runlog import TOKENS_PER_WORD, checkpoints, describe
 from dragon.runlog import curve as parse_curve
 
@@ -296,6 +297,113 @@ def page() -> str:
     return resources.files("dragon").joinpath("studio.html").read_text(encoding="utf-8")
 
 
+def port_owner(port: int) -> list[tuple[int, str]]:
+    """(pid, command) for whatever is listening on the port. Empty if nothing, or if
+    lsof is not available (Windows, or a bare container)."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("lsof"):
+        return []
+    out = subprocess.run(
+        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fpc"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+    owners, pid = [], None
+    for line in out.splitlines():
+        if line.startswith("p"):
+            pid = int(line[1:])
+        elif line.startswith("c") and pid is not None:
+            owners.append((pid, line[1:]))
+            pid = None
+    return owners
+
+
+def port_free(host: str, port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def next_free_port(host: str, start: int, limit: int = 50) -> int:
+    for port in range(start + 1, start + 1 + limit):
+        if port_free(host, port):
+            return port
+    raise DragonError(f"no free port between {start + 1} and {start + limit}")
+
+
+def choose_port(host: str, port: int, *, if_busy: str = "ask", ask=input, say=print) -> int:
+    """The port to serve on, once the requested one is known to be free.
+
+    if_busy: "ask" (the friendly path: say who has it and offer to end it or move),
+    "next" (quietly take the next free port), "kill" (end whatever has it),
+    "fail" (raise). Anything that is not a dragon studio is never killed
+    without asking.
+    """
+    import os
+    import signal
+
+    if port_free(host, port):
+        return port
+    owners = port_owner(port)
+    who = ", ".join(f"{cmd} (pid {pid})" for pid, cmd in owners) or "something"
+    ours = bool(owners) and all("dragon" in cmd or "python" in cmd.lower() for _, cmd in owners)
+
+    def kill() -> int:
+        if not owners:
+            raise DragonError(
+                f"port {port} is in use and I cannot tell by what; pick another with --port"
+            )
+        for pid, _ in owners:
+            os.kill(pid, signal.SIGTERM)
+        for _ in range(30):
+            time.sleep(0.1)
+            if port_free(host, port):
+                say(f"ended {who}; port {port} is free")
+                return port
+        raise DragonError(f"{who} did not release port {port}")
+
+    if if_busy == "fail":
+        raise DragonError(
+            f"port {port} is in use by {who}. --port to choose another, or --if-busy next"
+        )
+    if if_busy == "next" or (if_busy == "kill" and not ours):
+        chosen = next_free_port(host, port)
+        say(f"port {port} is in use by {who}; using {chosen}")
+        return chosen
+    if if_busy == "kill":
+        return kill()
+
+    say(f"\nPort {port} is already in use by {who}.")
+    if ours:
+        say("That looks like an earlier studio, probably still watching a run.")
+    alt = next_free_port(host, port)
+    while True:
+        choice = (
+            ask(f"[e]nd it and use {port}, use [a]nother port ({alt}), or [q]uit? ").strip().lower()
+        )
+        if choice in ("e", "end", "k", "kill", "t"):
+            return kill()
+        if choice in ("a", "another", "n", "next", ""):
+            return alt
+        if choice.isdigit():
+            wanted = int(choice)
+            if port_free(host, wanted):
+                return wanted
+            say(f"{wanted} is in use too")
+            continue
+        if choice in ("q", "quit"):
+            raise DragonError("stopped")
+
+
 def make_server(
     runs: Paths | list[Paths], *, host: str = "127.0.0.1", port: int = 8790
 ) -> ThreadingHTTPServer:
@@ -368,8 +476,10 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 8790,
     open_browser: bool = True,
+    if_busy: str = "ask",
 ) -> None:
     runs = [runs] if isinstance(runs, Paths) else list(runs)
+    port = choose_port(host, port, if_busy=if_busy)
     server = make_server(runs, host=host, port=port)
     url = f"http://{host}:{server.server_address[1]}/"
     print(f"observability studio: {url}")
