@@ -24,6 +24,8 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- Documentation for keeping fused models on an external drive behind symlinks,
+  and for verifying a copy before removing the original.
 - `dragon studio`: the observability studio. A read-only page on localhost that
   draws the loss curve live, marks checkpoints, estimates time left, explains
   what the numbers mean, and works on any `mlx_lm.lora` log, config or not.
