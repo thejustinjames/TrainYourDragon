@@ -43,6 +43,28 @@ Base-plus-adapter is not a way round this for the endpoint, because
 adapter up and never applies it. `dragon serve` serves the fused directory for
 that reason.
 
+### Where to keep them
+
+A 7B model fused this way is 8 GB at 8 bits and 15 GB at fp16, and a
+retrain doubles it if you keep the old one. They do not belong on a laptop's
+internal disk for long. Move the directories to an external drive and leave
+symlinks at the old paths; everything here follows a symlink, including the
+LM Studio link (a link to a link) and the Ollama Modelfile's relative `FROM`:
+
+```bash
+mv fused fused-fp16 "/Volumes/Models/myvoice/"
+ln -s "/Volumes/Models/myvoice/fused" fused
+ln -s "/Volumes/Models/myvoice/fused-fp16" fused-fp16
+```
+
+Copy, verify, then delete, rather than `mv` across volumes in one step:
+`rsync -a` to the drive, `rsync -a -n -i` back to see that nothing differs,
+then remove the originals. The adapters are a few hundred megabytes and are
+the thing to version, so they stay in the project.
+
+Unload the model from LM Studio and stop `dragon serve` first; a model that is
+loaded has its files open.
+
 ## The endpoint
 
 ```bash

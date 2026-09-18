@@ -97,5 +97,9 @@ found. Keep an old log as `train-run1.log` (and its adapters as
 
 **`no adapter at adapters/`** — train one, or point at another directory.
 
+**The disk is full.** The fused models are 8 GB and 15 GB each. Move them to
+an external drive and leave symlinks at `fused/` and `fused-fp16/`; [serving](serving.md)
+has the sequence. Do not move `adapters/`.
+
 **The upload is enormous.** `--fused` uploads several gigabytes. The adapter
 alone is around 50 MB and is what you want to version.
