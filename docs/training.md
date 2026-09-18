@@ -40,7 +40,8 @@ training:
 
 **`iters`** is the one to think about. What matters is how many times the model
 sees your corpus: roughly `iters × batch_size × max_seq_length` tokens against
-the total in `data/train.jsonl`. One to two passes is right for a voice model.
+the total in `data/train.jsonl`. `dragon build` prints this estimate for the
+current settings. One to two passes is right for a voice model.
 Three or four and it starts reproducing favourite sentences verbatim, which
 reads as self-plagiarism rather than as voice. Scale `iters` with the corpus,
 not with your patience.
@@ -83,12 +84,24 @@ on 25 validation batches means nothing; two consecutive points do.
 **The tick up at 1200** is the beginning of memorisation. The checkpoint at
 1000 is the one to keep.
 
+## Reading your own run
+
+```bash
+dragon curve
+```
+
+parses `train.log` and prints the validation loss by iteration, then says
+where the low point was, whether the last point is above it, and whether the
+curve has flattened. It is the table above, produced from your log rather than
+mine.
+
 ## Promoting a checkpoint
 
 `adapters/` holds every checkpoint. To make an earlier one live:
 
 ```bash
-cp adapters/0001000_adapters.safetensors adapters/adapters.safetensors
+dragon promote          # what is saved
+dragon promote 1000     # copy that one over adapters/adapters.safetensors
 ```
 
 Then re-fuse (`dragon fuse --force`) and re-export if you have already done
@@ -108,11 +121,11 @@ The measurement that actually decides whether a run was worth keeping is the
 side-by-side:
 
 ```bash
-dragon write --notes notes.txt --title "..." > tuned.txt
-dragon write --notes notes.txt --title "..." --base > base.txt
+dragon compare --notes notes.txt --title "..."
 ```
 
-Read both. You are looking for your own paragraph length, your punctuation, the
+which runs the same brief through the base model and then the adapter. Read
+both. You are looking for your own paragraph length, your punctuation, the
 way you close a section. You are also looking for the failure described in
 [voice and knowledge](voice-and-knowledge.md) — a paragraph with your rhythm
 and no content — because a model that has learnt your voice will pad in it.

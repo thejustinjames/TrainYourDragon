@@ -37,3 +37,21 @@ def test_a_missing_config_fails_with_a_message_not_a_traceback(tmp_path, monkeyp
 def test_no_subcommand_is_an_error():
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_doctor_flags_a_holdout_that_matches_nothing(tmp_path, capsys):
+    import shutil
+
+    import yaml
+
+    project = tmp_path / "project"
+    shutil.copytree(EXAMPLE_CONFIG.parent, project)
+    cfg = yaml.safe_load((project / "config.yaml").read_text())
+    cfg["corpus"]["holdout"] = ["the-quiet-part", "no-such-piece"]
+    cfg["corpus"]["exclude"] = ["also-missing"]
+    (project / "config.yaml").write_text(yaml.safe_dump(cfg))
+    assert main(["-c", str(project / "config.yaml"), "doctor"]) == 1
+    out = capsys.readouterr().out
+    assert "'no-such-piece' matches no file" in out
+    assert "'also-missing' matches no file" in out
+    assert "the-quiet-part" in out

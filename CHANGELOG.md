@@ -6,6 +6,20 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `dragon curve`: the validation loss by iteration from `train.log`, with a
+  reading of where the low point is and whether the curve has flattened.
+- `dragon promote`: list saved checkpoints, or make one the live adapter.
+- `dragon compare`: the same brief through the base model and the adapter,
+  one after the other.
+- `dragon build` estimates how many passes the configured run makes over the
+  corpus, and says whether that is in the range a voice model wants.
+- `dragon doctor` flags an `exclude` or `holdout` slug that matches no file.
+- `model.license` in `config.yaml`, carried onto the model card. It was
+  hard-coded to Apache 2.0, which is wrong for several base model families.
+- `dragon serve` warns when bound to anything other than the loopback address.
+
 ## [0.1.0] — 2026-09-18
 
 First public release: the tooling behind a private voice model, generalised so

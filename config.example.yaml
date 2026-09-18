@@ -7,6 +7,9 @@ model:
   base: mlx-community/Qwen2.5-7B-Instruct-4bit
   # Used to name the adapter, the Hugging Face repositories and the Ollama tag.
   name: myvoice-7b
+  # Goes on the model card. The adapter inherits the base model's licence, so
+  # look it up: Qwen2.5 is apache-2.0, Llama is llama3.x, Gemma is gemma.
+  license: apache-2.0
 
 voice:
   # The instruction every training pair carries, and the one you must send at

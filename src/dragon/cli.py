@@ -11,6 +11,9 @@ dragon fuse       bake the adapter into a standalone model
 dragon serve      an OpenAI-compatible endpoint on localhost
 dragon export     fused model into LM Studio and Ollama
 dragon publish    adapter (and optionally the model) to Hugging Face
+dragon curve      the validation loss curve, read from train.log
+dragon promote    make a saved checkpoint the live adapter
+dragon compare    the same brief through the base model and the adapter
 """
 
 from __future__ import annotations
@@ -101,6 +104,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             ok = False
             print("                 ✗ nothing found here")
 
+    # An excluded slug must exist on disk; a held-out one must have been loaded.
+    # Either way, a name that matches nothing is a typo waiting to waste a run.
+    on_disk, loaded = _all_keys(config), {d.key for d in documents}
+    for name, entries, known in (
+        ("exclude", config.exclude, on_disk),
+        ("holdout", config.holdout, loaded),
+    ):
+        for slug in sorted(entries):
+            if slug not in known:
+                ok = False
+                print(
+                    f"{name:<10} ✗ {slug!r} matches no file (a slug is the filename, no extension)"
+                )
+
     holdout = [d.key for d in documents if d.holdout]
     if holdout:
         print("held out   " + ", ".join(holdout))
@@ -110,6 +127,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     print("ok" if ok else "\nSomething above needs attention.")
     return 0 if ok else 1
+
+
+def _all_keys(config: Config) -> set[str]:
+    """Every slug on disk, including ones `exclude` removed before loading."""
+    keys = set()
+    for source in config.sources:
+        if source.kind in ("markdown", "pages", "terms") and source.path:
+            directory = config.resolve(source.path)
+            if directory.is_dir():
+                keys.update(p.stem for p in directory.iterdir() if p.is_file())
+    return keys
 
 
 def cmd_build(args: argparse.Namespace) -> int:
@@ -136,6 +164,23 @@ def cmd_build(args: argparse.Namespace) -> int:
         f" · valid {len(data.valid):,} · held out {len(data.test):,}"
     )
     print("by kind: " + ", ".join(f"{k} {v:,}" for k, v in data.by_tag.items()))
+    from dragon.runlog import passes
+
+    n = passes(config, data.target_words, data.brief_words)
+    t = config.training
+    note = (
+        "about right for a voice model"
+        if 1.0 <= n <= 2.5
+        else (
+            "on the low side; consider more iterations"
+            if n < 1.0
+            else "high: expect it to start quoting you. Fewer iterations"
+        )
+    )
+    print(
+        f"at iters {t['iters']} × batch {t['batch_size']} × seq {t['max_seq_length']}: "
+        f"roughly {n:.1f} passes over the corpus — {note}"
+    )
     if args.sample:
         for example in data.train[: args.sample]:
             print("\n" + "─" * 72)
@@ -205,6 +250,12 @@ def cmd_fuse(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     from dragon import mlxops
 
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            f"warning: binding to {args.host}. The endpoint has no authentication; "
+            "anything that can reach this machine can use the model.",
+            file=sys.stderr,
+        )
     return mlxops.serve(_config(args), host=args.host, port=args.port)
 
 
@@ -247,6 +298,63 @@ def cmd_publish(args: argparse.Namespace) -> int:
         fused_repo=args.fused_repo,
         owner=args.owner,
     )
+    return 0
+
+
+def cmd_curve(args: argparse.Namespace) -> int:
+    from dragon.runlog import curve, describe
+
+    config = _config(args)
+    val, train = curve(Path(args.log) if args.log else config.root / "train.log")
+    if not val:
+        print("no validation points yet")
+        return 0
+    print("iteration  val loss")
+    for p in val:
+        print(f"{p.iteration:>9}  {p.loss:.3f}")
+    if train:
+        print(f"\nlast training loss {train[-1].loss:.3f} at iteration {train[-1].iteration}")
+    print()
+    for line in describe(val):
+        print(line)
+    return 0
+
+
+def cmd_promote(args: argparse.Namespace) -> int:
+    from dragon.runlog import checkpoints, promote
+
+    config = _config(args)
+    if args.iteration is None:
+        saved = checkpoints(config.adapter_dir)
+        if not saved:
+            print(f"no checkpoints in {config.adapter_dir}")
+            return 1
+        print("saved checkpoints: " + ", ".join(str(i) for i, _ in saved))
+        return 0
+    live = promote(config, args.iteration)
+    print(f"{live} is now checkpoint {args.iteration}")
+    print("Re-run `dragon fuse --force` and `dragon export` if you have made either.")
+    return 0
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    """The test that matters: the same brief, base model and adapter, side by side."""
+    from dragon.generate import brief_from_notes, write
+
+    config = _config(args)
+    if args.notes:
+        notes = sys.stdin.read() if args.notes == "-" else Path(args.notes).read_text()
+        brief = brief_from_notes(notes, args.title, args.section, args.label)
+    elif args.brief:
+        brief = args.brief.replace("\\n", "\n")
+    else:
+        raise DragonError("give a brief, or --notes FILE")
+    for label, base in (("BASE MODEL", True), ("WITH ADAPTER", False)):
+        print("═" * 72)
+        print(label)
+        print("═" * 72)
+        print(write(config, brief, base=base, max_tokens=args.max_tokens, temperature=args.temp))
+        print()
     return 0
 
 
@@ -325,6 +433,24 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--fused-repo", help="fused repository id")
     s.add_argument("--owner", help="publish under an organisation instead of your account")
     s.set_defaults(func=cmd_publish, private=True)
+
+    s = sub.add_parser("curve", help="the validation loss curve from train.log")
+    s.add_argument("--log", help="a log file other than train.log")
+    s.set_defaults(func=cmd_curve)
+
+    s = sub.add_parser("promote", help="make a saved checkpoint the live adapter")
+    s.add_argument("iteration", nargs="?", type=int, help="omit to list what is saved")
+    s.set_defaults(func=cmd_promote)
+
+    s = sub.add_parser("compare", help="the same brief through the base model and the adapter")
+    s.add_argument("brief", nargs="?")
+    s.add_argument("--notes", help="file of dictated notes, or - for stdin")
+    s.add_argument("--title", default="Untitled")
+    s.add_argument("--section")
+    s.add_argument("--label", default="piece")
+    s.add_argument("--max-tokens", type=int, default=600)
+    s.add_argument("--temp", type=float, default=0.7)
+    s.set_defaults(func=cmd_compare)
 
     s = sub.add_parser("card", help="print the model card that publish would upload")
     s.add_argument("--fused", action="store_true")

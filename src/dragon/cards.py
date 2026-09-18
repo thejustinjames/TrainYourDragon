@@ -69,7 +69,7 @@ def model_card(config: Config, *, fused: bool, private: bool) -> str:
     return f"""---
 base_model: {config.base_model}
 library_name: {library}
-license: apache-2.0
+license: {config.license}
 language: [en]
 tags: [{", ".join(tags)}]
 ---

@@ -67,7 +67,9 @@ dragon publish --owner myorg          # publish under an organisation
 
 Each repository carries a README that the Hub renders as its model card. It is
 generated from `config.yaml` and the adapter's own `adapter_config.json`, so it
-cannot drift from what was actually trained: base model, licence, the system
+cannot drift from what was actually trained: base model, licence (from
+`model.license` in `config.yaml`, which you should set to match the base
+model's), the system
 prompt the adapter expects, how to load it, the training configuration, and a
 plain statement of what the thing is not.
 

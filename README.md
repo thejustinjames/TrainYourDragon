@@ -105,17 +105,21 @@ dragon test
 dragon write --notes notes.txt --title "The Cost of a Number" \
              --section "Why boards love a number"
 
-# The same brief on the untouched base model, for comparison
-dragon write --base "Essay: The Cost of a Number\nSection: Why boards love a number\n\nWrite this section."
+# The same notes through the base model and the adapter, side by side
+dragon compare --notes notes.txt --title "The Cost of a Number"
+
+# The validation curve from train.log, and which checkpoint to keep
+dragon curve
+dragon promote 1000
 
 # Interactive
 dragon chat
 ```
 
-The comparison matters more than any loss number. Run the same brief through
-`--base` and through the adapter. If you cannot tell them apart, the run did
-nothing; if the fine-tune is recognisably you, it worked, whatever the figures
-say. [docs/training.md](docs/training.md) covers reading the loss curve and
+The comparison matters more than any loss number. If you cannot tell the two
+halves of `dragon compare` apart, the run did nothing; if the fine-tune is
+recognisably you, it worked, whatever the figures say.
+[docs/training.md](docs/training.md) covers reading the loss curve and
 choosing which checkpoint to keep.
 
 ## Use it from other tools

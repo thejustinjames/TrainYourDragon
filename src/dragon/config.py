@@ -85,6 +85,7 @@ class Config:
 
     base_model: str
     model_name: str
+    license: str
     system_prompt: str
 
     corpus_root: Path
@@ -175,6 +176,7 @@ class Config:
             raw=raw,
             base_model=base_model,
             model_name=model.get("name") or "voice-model",
+            license=str(model.get("license") or "apache-2.0"),
             system_prompt=system_prompt,
             corpus_root=corpus_root,
             sources=sources,

@@ -90,9 +90,11 @@ prints what it made:
 ```
 train 1,842 examples / 328,972 words of target text · valid 116 · held out 14
 by kind: continue 187, notes 96, opening 51, page 24, recall 463, section 802, ...
+at iters 1200 × batch 2 × seq 2560: roughly 1.6 passes over the corpus — about right for a voice model
 ```
 
-Look at the numbers. A few hundred thousand words of target text is a healthy
+Look at the numbers. The last line is the one to act on: one to two passes is
+where a voice model should sit, and `training.iters` is the knob. A few hundred thousand words of target text is a healthy
 corpus. If `recall` is more than about a quarter of the total, set
 `dataset.recall_pairs` to a number instead of `true` — see
 [voice and knowledge](voice-and-knowledge.md).
@@ -133,12 +135,19 @@ dragon test
 gives the loss on the pieces you held back. Useful as a number to compare
 against next week's number, and almost meaningless on its own.
 
-The test that tells you something is the side-by-side. Take some real notes and
-run them both ways:
+First, the curve:
 
 ```bash
-dragon write --notes notes.txt --title "The Cost of a Number" > fine-tuned.txt
-dragon write --notes notes.txt --title "The Cost of a Number" --base > base.txt
+dragon curve          # validation loss by iteration, read from train.log
+dragon promote        # list the saved checkpoints
+dragon promote 1000   # make one of them the live adapter
+```
+
+Then the test that tells you something, which is the side-by-side. Take some
+real notes and run them both ways in one go:
+
+```bash
+dragon compare --notes notes.txt --title "The Cost of a Number"
 ```
 
 The base model will restate your notes in a paragraph of competent, anonymous

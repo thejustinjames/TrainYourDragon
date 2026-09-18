@@ -76,6 +76,12 @@ class Dataset:
         return sum(words(e.messages[-1]["content"]) for e in self.train)
 
     @property
+    def brief_words(self) -> int:
+        return sum(
+            words(e.messages[0]["content"]) + words(e.messages[1]["content"]) for e in self.train
+        )
+
+    @property
     def by_tag(self) -> dict[str, int]:
         return dict(sorted(Counter(e.tag for e in self.train).items()))
 
