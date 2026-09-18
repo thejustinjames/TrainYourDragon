@@ -294,7 +294,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_studio(args: argparse.Namespace) -> int:
-    from dragon.studio import Paths, serve
+    from dragon.studio import discover, serve
 
     # Works with or without a config, so it can watch a run started by hand.
     try:
@@ -313,15 +313,19 @@ def cmd_studio(args: argparse.Namespace) -> int:
             None,
             None,
         )
-    paths = Paths(
-        log=Path(args.log) if args.log else root / "train.log",
-        adapters=Path(args.adapters) if args.adapters else root / "adapters",
+    logs = [Path(p) for p in (args.log or [])]
+    if logs and not args.config:
+        root, name = logs[0].resolve().parent, logs[0].resolve().parent.name
+    runs = discover(
+        root,
+        extra_logs=logs,
+        adapters=Path(args.adapters) if args.adapters else None,
         stats=stats,
         lora=lora,
         iters=args.iters or iters,
-        name=Path(args.log).resolve().parent.name if args.log and not args.config else name,
+        name=name,
     )
-    serve(paths, host=args.host, port=args.port, open_browser=not args.no_open)
+    serve(runs, host=args.host, port=args.port, open_browser=not args.no_open)
     return 0
 
 
@@ -485,7 +489,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_export)
 
     s = sub.add_parser("studio", help="watch a training run in the browser")
-    s.add_argument("--log", help="a train.log other than this project's")
+    s.add_argument(
+        "--log",
+        action="append",
+        help="a log to watch; repeatable. train*.log in the project are found anyway",
+    )
     s.add_argument("--adapters", help="an adapters/ directory other than this project's")
     s.add_argument(
         "--iters", type=int, help="the run's target, if there is no config to read it from"

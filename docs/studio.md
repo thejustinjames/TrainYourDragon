@@ -37,6 +37,19 @@ this panel and know when to stop.
 **Log.** The last dozen lines that say something, with the progress bars
 filtered out.
 
+## Previous runs
+
+Every `train*.log` in the project is found and listed as a tab, newest first:
+`train.log` is the current run, and anything kept as `train-run1.log`,
+`train-before-recall.log` or similar is an earlier one, with
+`adapters-run1/` beside it if that was kept too. A finished run reads its
+length from its own log, so the tabs work without a config.
+
+**Overlay the other runs** draws every other run's validation curve as a
+dashed grey line on the current chart, labelled at its end. That is the
+comparison that matters between runs: whether the floor came down, and where
+the upturn moved to.
+
 ## Watching a run you started by hand
 
 It does not need a `config.yaml`. Any `mlx_lm.lora` log will do:
@@ -67,4 +80,5 @@ works.
 | `loading` | the trainer is up but has not reported an iteration |
 | `training` | figures arriving |
 | `stalled` | the log has not changed for three minutes and the run is not finished |
+| `stopped` | an old log that never reached its end: the run was stopped or it crashed |
 | `finished` | the final iteration was reached, or the final weights were saved |

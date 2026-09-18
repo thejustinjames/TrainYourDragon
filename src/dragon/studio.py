@@ -34,6 +34,9 @@ _TRAINABLE = re.compile(r"Trainable parameters: ([\d.]+)% \(([\d.]+M)/([\d.]+M)\
 STALE_AFTER_SECONDS = 180
 
 
+STOPPED_AFTER_SECONDS = 3600
+
+
 @dataclass
 class Paths:
     log: Path
@@ -42,6 +45,58 @@ class Paths:
     lora: Path | None = None  # the resolved mlx_lm.lora config, for iters
     iters: int | None = None  # an override, when there is no config at all
     name: str = "training run"
+
+    @property
+    def key(self) -> str:
+        return self.log.stem
+
+
+def discover(
+    root: Path,
+    *,
+    extra_logs: list[Path] | None = None,
+    adapters: Path | None = None,
+    stats: Path | None = None,
+    lora: Path | None = None,
+    iters: int | None = None,
+    name: str | None = None,
+) -> list[Paths]:
+    """Every run this project has logged, newest first.
+
+    `train.log` is the current run. Earlier ones are whatever was kept as
+    `train-<something>.log`, with `adapters-<something>/` beside it if it exists.
+    """
+    logs = {p.resolve() for p in root.glob("train*.log")}
+    logs |= {p.resolve() for p in (extra_logs or [])}
+    runs = []
+    for log in sorted(logs, key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+        suffix = log.stem[len("train") :].lstrip("-_")
+        run_adapters = adapters or (root / "adapters")
+        if suffix and (root / f"adapters-{suffix}").is_dir():
+            run_adapters = root / f"adapters-{suffix}"
+        label = name or root.name
+        runs.append(
+            Paths(
+                log=log,
+                adapters=run_adapters,
+                stats=stats,
+                lora=lora if not suffix else None,
+                iters=iters if not suffix else None,
+                name=f"{label} \u00b7 {suffix}" if suffix else f"{label} \u00b7 current",
+            )
+        )
+    if not runs:
+        runs.append(
+            Paths(
+                log=root / "train.log",
+                adapters=adapters or root / "adapters",
+                stats=stats,
+                lora=lora,
+                iters=iters,
+                name=name or root.name,
+            )
+        )
+    return runs
 
 
 @dataclass
@@ -99,10 +154,14 @@ def snapshot(paths: Paths) -> Snapshot:
         stage = "finished"
     elif not val and not train:
         stage = "loading"
+    elif age > STOPPED_AFTER_SECONDS:
+        stage = "stopped"
     elif age > STALE_AFTER_SECONDS:
         stage = "stalled"
     else:
         stage = "training"
+    if finished and iters is None:
+        iters = iteration
     live = stage in ("loading", "training")
 
     eta = None
@@ -200,6 +259,11 @@ def _reading(stage, val, iteration, iters, passes, age) -> list[str]:
             "validation figure appears at iteration 1, and it will look terrible: "
             "that is the untouched model being asked to write in a voice it has never seen."
         ]
+    if stage == "stopped":
+        return [
+            f"This run ended at iteration {iteration} without saving final weights, so it "
+            "was stopped or it crashed. The checkpoints it saved are still usable."
+        ]
     if stage == "stalled":
         return [
             f"train.log has not changed for {int(age // 60)} minutes and the run is not "
@@ -232,22 +296,54 @@ def page() -> str:
     return resources.files("dragon").joinpath("studio.html").read_text(encoding="utf-8")
 
 
-def make_server(paths: Paths, *, host: str = "127.0.0.1", port: int = 8790) -> ThreadingHTTPServer:
+def make_server(
+    runs: Paths | list[Paths], *, host: str = "127.0.0.1", port: int = 8790
+) -> ThreadingHTTPServer:
     """The studio's HTTP server, not yet running. `serve()` runs it; tests poke it."""
+    runs = [runs] if isinstance(runs, Paths) else list(runs)
+    by_key = {r.key: r for r in runs}
     html = page().encode("utf-8")
     lock = threading.Lock()
-    cache: dict[str, Any] = {"at": 0.0, "body": b""}
+    cache: dict[str, tuple[float, bytes]] = {}
+
+    def state(key: str) -> bytes:
+        with lock:
+            at, body = cache.get(key, (0.0, b""))
+            if time.time() - at > 1.0:
+                body = json.dumps(asdict(snapshot(by_key[key]))).encode("utf-8")
+                cache[key] = (time.time(), body)
+            return body
+
+    def index() -> bytes:
+        rows = []
+        for r in runs:
+            s = snapshot(r)
+            rows.append(
+                {
+                    "key": r.key,
+                    "name": r.name,
+                    "stage": s.stage,
+                    "iteration": s.iteration,
+                    "iters": s.iters,
+                    "lowest": s.lowest,
+                    "live": s.live,
+                }
+            )
+        return json.dumps(rows).encode("utf-8")
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802 (http.server's name)
-            if self.path.split("?")[0] == "/api/state":
-                with lock:
-                    if time.time() - cache["at"] > 1.0:
-                        cache["body"] = json.dumps(asdict(snapshot(paths))).encode("utf-8")
-                        cache["at"] = time.time()
-                    body = cache["body"]
-                self._send(200, "application/json; charset=utf-8", body)
-            elif self.path in ("/", "/index.html"):
+            path, _, query = self.path.partition("?")
+            params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
+            if path == "/api/state":
+                key = params.get("run", runs[0].key)
+                if key not in by_key:
+                    self._send(404, "text/plain", b"no such run")
+                    return
+                self._send(200, "application/json; charset=utf-8", state(key))
+            elif path == "/api/runs":
+                self._send(200, "application/json; charset=utf-8", index())
+            elif path in ("/", "/index.html"):
                 self._send(200, "text/html; charset=utf-8", html)
             else:
                 self._send(404, "text/plain", b"not found")
@@ -267,11 +363,18 @@ def make_server(paths: Paths, *, host: str = "127.0.0.1", port: int = 8790) -> T
 
 
 def serve(
-    paths: Paths, *, host: str = "127.0.0.1", port: int = 8790, open_browser: bool = True
+    runs: Paths | list[Paths],
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8790,
+    open_browser: bool = True,
 ) -> None:
-    server = make_server(paths, host=host, port=port)
+    runs = [runs] if isinstance(runs, Paths) else list(runs)
+    server = make_server(runs, host=host, port=port)
     url = f"http://{host}:{server.server_address[1]}/"
-    print(f"observability studio: {url}   (watching {paths.log})")
+    print(f"observability studio: {url}")
+    for r in runs:
+        print(f"  {r.key:<16} {r.log}")
     if open_browser:
         import webbrowser
 

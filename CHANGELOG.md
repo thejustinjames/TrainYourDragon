@@ -11,6 +11,8 @@ All notable changes to this project are recorded here. The format follows
 - `dragon studio`: the observability studio. A read-only page on localhost that
   draws the loss curve live, marks checkpoints, estimates time left, explains
   what the numbers mean, and works on any `mlx_lm.lora` log, config or not.
+  Every `train*.log` in the project is a tab, and the other runs' validation
+  curves can be overlaid on the current one.
 - `dragon gguf`: GGUF export through llama.cpp's converter and `llama-quantize`,
   with the `template`, `system` and `params` files Ollama reads from a Hub
   repository. `dragon publish --gguf` uploads it, so `ollama run hf.co/<repo>`

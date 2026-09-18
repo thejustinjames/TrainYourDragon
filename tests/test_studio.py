@@ -113,3 +113,71 @@ def test_the_log_tail_leaves_out_progress_bars(tmp_path):
     tail = snapshot(project(tmp_path)).log_tail
     assert not any("Calculating loss" in line for line in tail)
     assert any(line.startswith("Iter 100: Val loss") for line in tail)
+
+
+def test_discover_finds_every_run_newest_first_with_its_own_adapters(tmp_path):
+    import os
+    import time
+
+    (tmp_path / "train-run1.log").write_text(LOG.replace("Iter 200: Val", "Iter 200: Val"))
+    (tmp_path / "adapters-run1").mkdir()
+    (tmp_path / "adapters").mkdir()
+    old = time.time() - 600
+    os.utime(tmp_path / "train-run1.log", (old, old))
+    (tmp_path / "train.log").write_text(LOG)
+    runs = studio.discover(tmp_path, iters=400)
+    assert [r.key for r in runs] == ["train", "train-run1"]
+    assert runs[0].adapters == tmp_path / "adapters" and runs[0].iters == 400
+    assert runs[1].adapters == tmp_path / "adapters-run1" and runs[1].iters is None
+    assert runs[1].name.endswith("run1") and runs[0].name.endswith("current")
+
+
+def test_discover_with_nothing_logged_still_points_at_train_log(tmp_path):
+    runs = studio.discover(tmp_path)
+    assert len(runs) == 1 and runs[0].log == tmp_path / "train.log"
+    assert snapshot(runs[0]).stage == "waiting"
+
+
+def test_a_finished_run_without_a_config_knows_its_own_length(tmp_path):
+    (tmp_path / "train.log").write_text(
+        LOG + "Saved final weights to adapters/adapters.safetensors.\n"
+    )
+    s = snapshot(studio.discover(tmp_path)[0])
+    assert s.stage == "finished" and s.iters == 200 and s.progress == 1.0
+
+
+def test_an_old_unfinished_run_is_stopped_not_stalled(tmp_path, monkeypatch):
+    paths = project(tmp_path)
+    monkeypatch.setattr(studio, "STOPPED_AFTER_SECONDS", -1)
+    s = snapshot(paths)
+    assert s.stage == "stopped"
+    assert any("stopped or it crashed" in line for line in s.reading)
+
+
+def test_the_runs_index_and_run_selection_are_served(tmp_path):
+    (tmp_path / "train-run1.log").write_text(LOG)
+    paths = project(tmp_path)
+    runs = studio.discover(tmp_path, iters=400)
+    server = studio.make_server(runs, port=0)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
+    thread.start()
+    try:
+        port = server.server_address[1]
+        index = json.loads(
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/runs", timeout=3).read()
+        )
+        assert [r["key"] for r in index] == ["train", "train-run1"]
+        one = json.loads(
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/state?run=train-run1", timeout=3
+            ).read()
+        )
+        assert one["name"].endswith("run1")
+        with pytest.raises(urllib.error.HTTPError):
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state?run=nope", timeout=3)
+    finally:
+        server.shutdown()
+        server.server_close()
+    del paths
