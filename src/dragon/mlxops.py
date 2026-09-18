@@ -183,11 +183,15 @@ def serve(config: Config, *, host: str = "127.0.0.1", port: int = 8787) -> int:
 
 
 # ------------------------------------------------------------------ ollama
-def ollama_import(config: Config, modelfile: Path, tag: str, quantise: str = "q4_K_M") -> int:
+def ollama_import(
+    config: Config, modelfile: Path, tag: str, quantise: str | None = "q4_K_M"
+) -> int:
     if not shutil.which("ollama"):
         print("ollama is not installed; skipped")
         return 0
-    args = ["ollama", "create", tag, "--quantize", quantise, "-f", str(modelfile)]
+    args = ["ollama", "create", tag, "-f", str(modelfile)]
+    if quantise:
+        args[3:3] = ["--quantize", quantise]
     code = run(args, cwd=config.root)
     if code == 0:
         print(f"ollama run {tag}")

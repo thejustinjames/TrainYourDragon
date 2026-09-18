@@ -36,9 +36,11 @@ def publish(
     config: Config,
     *,
     fused: bool = False,
+    gguf: bool = False,
     private: bool = True,
     adapter_repo: str | None = None,
     fused_repo: str | None = None,
+    gguf_repo: str | None = None,
     owner: str | None = None,
 ) -> list[str]:
     api, user = _api()
@@ -53,7 +55,7 @@ def publish(
     repo = adapter_repo or f"{owner}/{config.model_name}-lora"
     api.create_repo(repo, private=private, exist_ok=True, repo_type="model")
     (adapter_dir / "README.md").write_text(
-        model_card(config, fused=False, private=private), encoding="utf-8"
+        model_card(config, flavour="adapter", private=private), encoding="utf-8"
     )
     api.upload_folder(
         repo_id=repo,
@@ -73,7 +75,7 @@ def publish(
         repo = fused_repo or f"{owner}/{config.model_name}-mlx"
         api.create_repo(repo, private=private, exist_ok=True, repo_type="model")
         (fused_dir / "README.md").write_text(
-            model_card(config, fused=True, private=private), encoding="utf-8"
+            model_card(config, flavour="fused", private=private), encoding="utf-8"
         )
         api.upload_folder(
             repo_id=repo,
@@ -85,9 +87,32 @@ def publish(
         print(f"fused → {url} ({'private' if private else 'PUBLIC'})")
         urls.append(url)
 
+    if gguf:
+        from dragon.gguf import existing, gguf_dir, write_sidecars
+
+        if not existing(config):
+            raise DragonError(f"no GGUF files in {gguf_dir(config)}. Run `dragon gguf` first.")
+        write_sidecars(config, gguf_dir(config))
+        repo = gguf_repo or f"{owner}/{config.model_name}-gguf"
+        api.create_repo(repo, private=private, exist_ok=True, repo_type="model")
+        (gguf_dir(config) / "README.md").write_text(
+            model_card(config, flavour="gguf", private=private), encoding="utf-8"
+        )
+        api.upload_folder(
+            repo_id=repo,
+            folder_path=str(gguf_dir(config)),
+            repo_type="model",
+            allow_patterns=["*.gguf", "README.md", "template", "system", "params"],
+            commit_message=f"GGUF, {today}",
+        )
+        url = f"https://huggingface.co/{repo}"
+        print(f"gguf \u2192 {url} ({'private' if private else 'PUBLIC'})")
+        print(f"  ollama run hf.co/{repo}")
+        urls.append(url)
+
     return urls
 
 
-def local_card(config: Config, path: Path, *, fused: bool = False) -> Path:
-    path.write_text(model_card(config, fused=fused, private=True), encoding="utf-8")
+def local_card(config: Config, path: Path, *, flavour: str = "adapter") -> Path:
+    path.write_text(model_card(config, flavour=flavour, private=True), encoding="utf-8")
     return path

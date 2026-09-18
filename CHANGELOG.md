@@ -8,6 +8,16 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- `dragon studio`: the observability studio. A read-only page on localhost that
+  draws the loss curve live, marks checkpoints, estimates time left, explains
+  what the numbers mean, and works on any `mlx_lm.lora` log, config or not.
+- `dragon gguf`: GGUF export through llama.cpp's converter and `llama-quantize`,
+  with the `template`, `system` and `params` files Ollama reads from a Hub
+  repository. `dragon publish --gguf` uploads it, so `ollama run hf.co/<repo>`
+  works on any machine.
+- `model.license` on the model card; a `gguf` card flavour; `dragon export`
+  imports an existing GGUF into Ollama rather than re-quantising.
+
 - `dragon curve`: the validation loss by iteration from `train.log`, with a
   reading of where the low point is and whether the curve has flattened.
 - `dragon promote`: list saved checkpoints, or make one the live adapter.

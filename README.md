@@ -14,7 +14,8 @@ pip install -e '.[mlx,hub]'
 dragon init            # a starting config.yaml
 dragon doctor          # check the machine, the config and the corpus
 dragon build           # your writing becomes a training set
-dragon train           # a few hours; watch the validation loss
+dragon train           # a few hours
+dragon studio          # watch it in the browser while it runs
 dragon test            # loss on the pieces it never saw
 dragon write --notes notes.txt --title "The Cost of a Number"
 ```
@@ -122,11 +123,24 @@ recognisably you, it worked, whatever the figures say.
 [docs/training.md](docs/training.md) covers reading the loss curve and
 choosing which checkpoint to keep.
 
+## Watch it train
+
+```bash
+dragon studio
+```
+
+A page on localhost that draws the loss curve live, marks each checkpoint,
+estimates the time left and says in plain words what the numbers mean — where
+the low point is, whether memorisation has started, how many passes over the
+corpus so far. Read-only, no dependencies, and it works on a run started by
+hand: [docs/studio.md](docs/studio.md).
+
 ## Use it from other tools
 
 ```bash
 dragon serve      # http://127.0.0.1:8787/v1, OpenAI-compatible, model id default_model
 dragon export     # fused model into LM Studio, and imported into Ollama
+dragon gguf       # a GGUF, so Ollama on any machine can pull it from the Hub
 ```
 
 Anything that speaks the OpenAI API can point at the endpoint. See
@@ -138,6 +152,7 @@ untouched base model off `/v1/models` and you wonder why the voice vanished.
 ```bash
 dragon publish            # the adapter, private, with a generated model card
 dragon publish --fused    # the whole fused model too, several GB
+dragon publish --gguf     # the GGUF export: ollama run hf.co/<you>/<name>-gguf
 ```
 
 Repositories are created private, and `--public` asks you to confirm in words.
@@ -163,6 +178,7 @@ is not.
 - [Preparing a corpus](docs/corpus.md) — sources, fields, what to leave out
 - [Voice and knowledge](docs/voice-and-knowledge.md) — what fine-tuning does and does not teach
 - [Training](docs/training.md) — hyperparameters, the loss curve, which checkpoint
+- [Observability studio](docs/studio.md) — watching a run in the browser
 - [Serving and exporting](docs/serving.md) — endpoint, LM Studio, Ollama
 - [Hugging Face](docs/hugging-face.md) — publishing, access, another machine
 - [Responsible use](docs/responsible-use.md)

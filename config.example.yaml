@@ -129,6 +129,10 @@ training:
 
 export:
   lm_studio_name: myname/myvoice-7b-mlx-4bit
+  gguf:
+    # A llama.cpp checkout, for `dragon gguf`. Also found via $LLAMA_CPP or
+    # ~/llama.cpp. The quantiser is `llama-quantize` on PATH (brew install llama.cpp).
+    llama_cpp: ~/llama.cpp
   ollama:
     parameters:
       temperature: 0.7

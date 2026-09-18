@@ -100,6 +100,38 @@ export:
       num_ctx: 8192
 ```
 
+## GGUF, for Ollama anywhere
+
+MLX weights run on Apple silicon only. A GGUF runs in llama.cpp and everything
+built on it, and Ollama can pull one straight from the Hub on any machine:
+
+```bash
+dragon gguf                     # gguf/<name>-f16.gguf and gguf/<name>-Q4_K_M.gguf
+dragon gguf --quant Q5_K_M
+dragon publish --gguf           # → ollama run hf.co/<you>/<name>-gguf:Q4_K_M
+```
+
+Two tools are needed and neither is bundled. The converter is
+`convert_hf_to_gguf.py` from a [llama.cpp](https://github.com/ggml-org/llama.cpp)
+checkout, found through `export.gguf.llama_cpp` in `config.yaml`, `$LLAMA_CPP`,
+or `~/llama.cpp`; its Python dependencies come with `pip install -e '.[gguf]'`,
+which is heavy because it includes PyTorch. The quantiser is `llama-quantize`,
+which `brew install llama.cpp` provides. `dragon doctor` reports whether it can
+see both. Without the quantiser you get the f16 file only, which works but is
+fourteen gigabytes.
+
+mlx-lm's own GGUF writer is not used because it only knows the Llama
+architecture; a Qwen adapter would come out mislabelled.
+
+Alongside the `.gguf` files the export writes `template`, `system` and
+`params`, which are the three files Ollama reads from a Hub repository for the
+chat template, the system prompt and the sampling settings. That is how a
+machine that pulls the model gets the voice rather than the base persona,
+without a Modelfile. A Modelfile is written too, for a local `ollama create`.
+
+Once a GGUF exists, `dragon export` imports that into the local Ollama instead
+of re-quantising from the fp16 safetensors, which is faster.
+
 ## Wiring it into your own tools
 
 The pattern that works is to make the local model an option rather than a

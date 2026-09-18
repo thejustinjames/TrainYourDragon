@@ -28,6 +28,8 @@ dependencies = ["pyyaml>=6.0"]
 mlx = ["mlx-lm>=0.31"]
 # Publishing to, and pulling from, the Hugging Face Hub.
 hub = ["huggingface_hub>=0.25"]
+# What llama.cpp's convert_hf_to_gguf.py needs, for `dragon gguf`. Heavy.
+gguf = ["gguf>=0.10", "torch>=2.2", "transformers>=4.40", "safetensors>=0.4", "sentencepiece"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.urls]
@@ -40,6 +42,9 @@ dragon = "dragon.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+dragon = ["studio.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -59,3 +64,4 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402"]
+"tests/test_studio.py" = ["E501"]  # real mlx_lm log lines are long

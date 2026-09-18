@@ -9,7 +9,9 @@ dragon write      a draft from a brief or from dictated notes
 dragon chat       an interactive session with the adapter loaded
 dragon fuse       bake the adapter into a standalone model
 dragon serve      an OpenAI-compatible endpoint on localhost
+dragon studio     watch a training run in the browser
 dragon export     fused model into LM Studio and Ollama
+dragon gguf       a GGUF export, so Ollama can pull it on any machine
 dragon publish    adapter (and optionally the model) to Hugging Face
 dragon curve      the validation loss curve, read from train.log
 dragon promote    make a saved checkpoint the live adapter
@@ -83,6 +85,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     except ImportError:
         print("hugging face  huggingface_hub not installed (only needed to publish)")
 
+    from dragon.gguf import llama_cpp_dir, quantiser
+
+    d = llama_cpp_dir(config)
+    print(f"llama.cpp  {d if d else 'not found (only needed for `dragon gguf`)'}")
+    q = quantiser(config)
+    print(f"quantiser  {q if q else 'llama-quantize not found (brew install llama.cpp)'}")
+
     print(f"corpus     {config.corpus_root}")
     if not config.corpus_root.exists():
         ok = False
@@ -155,6 +164,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             "valid": len(data.valid),
             "test": len(data.test),
             "target_words": data.target_words,
+            "brief_words": data.brief_words,
             "by_tag": data.by_tag,
         }
         (config.data_dir / "stats.json").write_text(json.dumps(stats, indent=2))
@@ -196,6 +206,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     config = _config(args)
     if not args.no_build:
         cmd_build(argparse.Namespace(config=args.config, dry_run=False, sample=0))
+    print("to watch it: dragon studio   (in another terminal)\n")
     return mlxops.train(config, resume=args.resume, extra_args=args.extra)
 
 
@@ -268,11 +279,57 @@ def cmd_export(args: argparse.Namespace) -> int:
         export = config.raw.get("export") or {}
         mlxops.lm_studio_link(fused, export.get("lm_studio_name") or config.model_name)
     if not args.no_ollama:
-        fp16 = mlxops.fuse(config, dequantize=True)
+        from dragon.gguf import quantised_file
+
+        # A quantised GGUF, if one has been made, imports in seconds; otherwise
+        # Ollama reads the fp16 safetensors and quantises on the way in.
+        source = quantised_file(config)
+        if source is None:
+            source = mlxops.fuse(config, dequantize=True)
         path = config.work_dir / "Modelfile"
-        path.write_text(cards.modelfile(config, fp16), encoding="utf-8")
+        path.write_text(cards.modelfile(config, source), encoding="utf-8")
         tag = args.tag or f"{config.model_name}:latest"
-        mlxops.ollama_import(config, path, tag)
+        mlxops.ollama_import(config, path, tag, quantise=None if source.is_file() else "q4_K_M")
+    return 0
+
+
+def cmd_studio(args: argparse.Namespace) -> int:
+    from dragon.studio import Paths, serve
+
+    # Works with or without a config, so it can watch a run started by hand.
+    try:
+        config = _config(args)
+        root, name = config.root, config.model_name
+        stats, lora, iters = (
+            config.data_dir / "stats.json",
+            config.work_dir / "lora.yaml",
+            config.training.get("iters"),
+        )
+    except DragonError:
+        root, name, stats, lora, iters = (
+            Path.cwd(),
+            Path.cwd().name,
+            Path.cwd() / "data" / "stats.json",
+            None,
+            None,
+        )
+    paths = Paths(
+        log=Path(args.log) if args.log else root / "train.log",
+        adapters=Path(args.adapters) if args.adapters else root / "adapters",
+        stats=stats,
+        lora=lora,
+        iters=args.iters or iters,
+        name=Path(args.log).resolve().parent.name if args.log and not args.config else name,
+    )
+    serve(paths, host=args.host, port=args.port, open_browser=not args.no_open)
+    return 0
+
+
+def cmd_gguf(args: argparse.Namespace) -> int:
+    from dragon.gguf import export
+
+    for path in export(_config(args), quant=args.quant, force=args.force):
+        print(path)
     return 0
 
 
@@ -293,9 +350,11 @@ def cmd_publish(args: argparse.Namespace) -> int:
     publish(
         config,
         fused=args.fused,
+        gguf=args.gguf,
         private=args.private,
         adapter_repo=args.repo,
         fused_repo=args.fused_repo,
+        gguf_repo=args.gguf_repo,
         owner=args.owner,
     )
     return 0
@@ -361,7 +420,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
 def cmd_card(args: argparse.Namespace) -> int:
     from dragon.cards import model_card
 
-    print(model_card(_config(args), fused=args.fused, private=True))
+    print(model_card(_config(args), flavour=args.flavour, private=True))
     return 0
 
 
@@ -425,12 +484,30 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-lm-studio", action="store_true")
     s.set_defaults(func=cmd_export)
 
+    s = sub.add_parser("studio", help="watch a training run in the browser")
+    s.add_argument("--log", help="a train.log other than this project's")
+    s.add_argument("--adapters", help="an adapters/ directory other than this project's")
+    s.add_argument(
+        "--iters", type=int, help="the run's target, if there is no config to read it from"
+    )
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8790)
+    s.add_argument("--no-open", action="store_true", help="do not open a browser")
+    s.set_defaults(func=cmd_studio)
+
+    s = sub.add_parser("gguf", help="a GGUF export, for Ollama on any machine")
+    s.add_argument("--quant", default="Q4_K_M", help="llama-quantize type (default Q4_K_M)")
+    s.add_argument("--force", action="store_true", help="rebuild even if the files exist")
+    s.set_defaults(func=cmd_gguf)
+
     s = sub.add_parser("publish", help="to the Hugging Face Hub")
     s.add_argument("--fused", action="store_true", help="the fused model too (several GB)")
+    s.add_argument("--gguf", action="store_true", help="the GGUF export too, for Ollama")
     s.add_argument("--public", dest="private", action="store_false", help="read the warning first")
     s.add_argument("--yes", action="store_true", help="skip the confirmation for --public")
     s.add_argument("--repo", help="adapter repository id (default: <user>/<model name>-lora)")
     s.add_argument("--fused-repo", help="fused repository id")
+    s.add_argument("--gguf-repo", help="GGUF repository id (default: <user>/<model name>-gguf)")
     s.add_argument("--owner", help="publish under an organisation instead of your account")
     s.set_defaults(func=cmd_publish, private=True)
 
@@ -453,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_compare)
 
     s = sub.add_parser("card", help="print the model card that publish would upload")
-    s.add_argument("--fused", action="store_true")
+    s.add_argument("--flavour", choices=["adapter", "fused", "gguf"], default="adapter")
     s.set_defaults(func=cmd_card)
 
     return p

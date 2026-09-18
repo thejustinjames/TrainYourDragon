@@ -119,6 +119,16 @@ closer to six if it is allowed to doze between wake-ups — which is what
 `train-awake.sh` is for. Everything is written to `train.log` as well as the
 screen.
 
+In another terminal:
+
+```bash
+dragon studio
+```
+
+opens a page that draws the loss curve as it happens, marks each checkpoint,
+estimates the time left and explains what the numbers mean. Keep it open; it
+is easier to read than the log. [docs/studio.md](studio.md).
+
 Validation loss is printed every hundred iterations. What you want to see is a
 steep fall, then a flattening. What you are watching for is the point where
 validation loss starts rising while training loss keeps falling: that is the
@@ -184,6 +194,7 @@ OpenAI API.
 ```bash
 dragon publish            # the adapter, private, about 50 MB
 dragon publish --fused    # the whole model, several GB
+dragon gguf && dragon publish --gguf    # a GGUF, so Ollama anywhere can pull it
 ```
 
 Private by default, and `--public` makes you confirm. See
