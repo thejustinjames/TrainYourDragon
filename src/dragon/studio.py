@@ -13,6 +13,7 @@ import json
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -405,11 +406,21 @@ def choose_port(host: str, port: int, *, if_busy: str = "ask", ask=input, say=pr
 
 
 def make_server(
-    runs: Paths | list[Paths], *, host: str = "127.0.0.1", port: int = 8790
+    runs: Paths | list[Paths] | Callable[[], list[Paths]],
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8790,
 ) -> ThreadingHTTPServer:
     """The studio's HTTP server, not yet running. `serve()` runs it; tests poke it."""
-    runs = [runs] if isinstance(runs, Paths) else list(runs)
-    by_key = {r.key: r for r in runs}
+    # `runs` may be a callable that rediscovers them, so a log that appears
+    # after the server started (a new run, an old one renamed) shows up on
+    # the next poll without a restart.
+    provider = runs if callable(runs) else None
+    fixed = [] if provider else ([runs] if isinstance(runs, Paths) else list(runs))
+
+    def current_runs() -> list[Paths]:
+        return list(provider()) if provider else fixed
+
     html = page().encode("utf-8")
     lock = threading.Lock()
     cache: dict[str, tuple[float, bytes]] = {}
@@ -418,13 +429,16 @@ def make_server(
         with lock:
             at, body = cache.get(key, (0.0, b""))
             if time.time() - at > 1.0:
-                body = json.dumps(asdict(snapshot(by_key[key]))).encode("utf-8")
+                run = next((r for r in current_runs() if r.key == key), None)
+                if run is None:
+                    return b""
+                body = json.dumps(asdict(snapshot(run))).encode("utf-8")
                 cache[key] = (time.time(), body)
             return body
 
     def index() -> bytes:
         rows = []
-        for r in runs:
+        for r in current_runs():
             s = snapshot(r)
             rows.append(
                 {
@@ -444,11 +458,13 @@ def make_server(
             path, _, query = self.path.partition("?")
             params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
             if path == "/api/state":
-                key = params.get("run", runs[0].key)
-                if key not in by_key:
+                runs_now = current_runs()
+                key = params.get("run", runs_now[0].key)
+                body = state(key) if any(r.key == key for r in runs_now) else b""
+                if not body:
                     self._send(404, "text/plain", b"no such run")
                     return
-                self._send(200, "application/json; charset=utf-8", state(key))
+                self._send(200, "application/json; charset=utf-8", body)
             elif path == "/api/runs":
                 self._send(200, "application/json; charset=utf-8", index())
             elif path in ("/", "/index.html"):
@@ -471,19 +487,19 @@ def make_server(
 
 
 def serve(
-    runs: Paths | list[Paths],
+    runs: Paths | list[Paths] | Callable[[], list[Paths]],
     *,
     host: str = "127.0.0.1",
     port: int = 8790,
     open_browser: bool = True,
     if_busy: str = "ask",
 ) -> None:
-    runs = [runs] if isinstance(runs, Paths) else list(runs)
     port = choose_port(host, port, if_busy=if_busy)
     server = make_server(runs, host=host, port=port)
     url = f"http://{host}:{server.server_address[1]}/"
     print(f"observability studio: {url}")
-    for r in runs:
+    listed = runs() if callable(runs) else ([runs] if isinstance(runs, Paths) else runs)
+    for r in listed:
         print(f"  {r.key:<16} {r.log}")
     if open_browser:
         import webbrowser

@@ -261,3 +261,32 @@ def test_ending_the_occupant_frees_the_port():
     finally:
         if child.poll() is None:
             child.kill()
+
+
+def test_a_log_that_appears_later_becomes_a_tab_without_a_restart(tmp_path):
+    project(tmp_path)
+    server = studio.make_server(lambda: studio.discover(tmp_path, iters=400), port=0)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
+    thread.start()
+    try:
+        port = server.server_address[1]
+        before = json.loads(
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/runs", timeout=3).read()
+        )
+        assert [r["key"] for r in before] == ["train"]
+        (tmp_path / "train-run1.log").write_text(LOG)
+        after = json.loads(
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/api/runs", timeout=3).read()
+        )
+        assert sorted(r["key"] for r in after) == ["train", "train-run1"]
+        one = json.loads(
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/state?run=train-run1", timeout=3
+            ).read()
+        )
+        assert one["iteration"] == 200
+    finally:
+        server.shutdown()
+        server.server_close()

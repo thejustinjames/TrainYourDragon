@@ -319,15 +319,19 @@ def cmd_studio(args: argparse.Namespace) -> int:
     logs = [Path(p) for p in (args.log or [])]
     if logs and not args.config:
         root, name = logs[0].resolve().parent, logs[0].resolve().parent.name
-    runs = discover(
-        root,
-        extra_logs=logs,
-        adapters=Path(args.adapters) if args.adapters else None,
-        stats=stats,
-        lora=lora,
-        iters=args.iters or iters,
-        name=name,
-    )
+
+    def runs():
+        # Rediscovered on every poll, so a log that appears later is a new tab.
+        return discover(
+            root,
+            extra_logs=logs,
+            adapters=Path(args.adapters) if args.adapters else None,
+            stats=stats,
+            lora=lora,
+            iters=args.iters or iters,
+            name=name,
+        )
+
     if_busy = args.if_busy or ("ask" if sys.stdin.isatty() else "next")
     serve(runs, host=args.host, port=args.port, open_browser=not args.no_open, if_busy=if_busy)
     return 0
