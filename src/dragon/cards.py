@@ -71,7 +71,8 @@ def model_card(config: Config, *, flavour: str = "adapter", private: bool) -> st
             f"Fused at {config.fuse_bits} bits on purpose. A light adapter moves each weight by "
             "less than a 4-bit quantisation step, so fusing into a 4-bit base and re-quantising "
             "rounds most of it away: the voice survives, the recall of anything specific does "
-            "not. Load this directory directly; the voice prompt is the chat template's default.\n\n"
+            "not. Load this directory directly; the voice prompt is the chat template's "
+            "default.\n\n"
         )
 
     stats = config.root / "data" / "stats.json"
