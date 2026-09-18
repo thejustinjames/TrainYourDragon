@@ -96,22 +96,37 @@ def chunk(text: str, max_words: int) -> list[str]:
     return pieces
 
 
-def notes_from(text: str, max_words_per_note: int = 14) -> str:
-    """A rough dictation of a passage: the opening clause of each paragraph.
+STOPWORDS = frozenset(
+    "a an the and or but so if of to in on at by for with from as is are was were be been "
+    "being it its this that these those there here which who whom whose what when where why "
+    "how not no nor do does did done has have had having he she they them his her their we "
+    "us our you your i me my mine than then also just very more most much many some any all "
+    "into onto over under about after before because while though although".split()
+)
+
+
+def notes_from(text: str, max_words_per_note: int = 8) -> str:
+    """A rough dictation of a passage: the gist of each paragraph, as content words.
 
     This is the one synthetic thing in the dataset. It gives the model the task
-    it will actually be asked to do — sparse notes in, finished prose out —
-    without anyone having to write notes for every essay by hand.
+    it will actually be asked to do, sparse notes in and finished prose out,
+    without anyone writing notes for every essay by hand.
+
+    The gist is deliberately not the paragraph's opening clause. An earlier
+    version used exactly that, and the model learnt the lesson too well: it
+    began every paragraph with the note verbatim, lower case and all. Content
+    words in order, with the first few words of the paragraph skipped, reads
+    like a dictated fragment and cannot be copied into the prose as a sentence.
     """
     notes = []
     for para in paragraphs(text):
         if para.startswith((">", "-", "*", "|", "```", "#")):
             continue
-        first = re.split(r"(?<=[.!?])\s", para, maxsplit=1)[0]
-        parts = first.split()
-        if len(parts) < 4:
+        tokens = [w.strip(".,;:!?\"'()[]\u2014\u2013") for w in para.split()[:60]]
+        content = [w for w in tokens[3:] if w and w.lower() not in STOPWORDS and len(w) > 2]
+        if len(content) < 3:
             continue
-        notes.append("- " + " ".join(parts[:max_words_per_note]).rstrip(".,;:"))
+        notes.append("- " + " ".join(content[:max_words_per_note]).lower())
     return "\n".join(notes)
 
 

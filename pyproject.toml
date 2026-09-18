@@ -59,7 +59,8 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
 ignore = [
-  "B905",  # zip(strict=) is 3.10+, and this supports 3.10
+  "B905",   # zip(strict=) is 3.10+, and this supports 3.10
+  "SIM905", # a word list as one string is easier to read than a hundred quoted words
 ]
 
 [tool.ruff.lint.per-file-ignores]

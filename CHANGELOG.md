@@ -8,6 +8,10 @@ All notable changes to this project are recorded here. The format follows
 
 ### Changed
 
+- Dictated-notes pairs are now a gist of each paragraph's content words rather
+  than its opening clause. The old recipe made the answer begin with the note's
+  own words in nearly every pair, and the trained model duly began every
+  paragraph with the note verbatim.
 - Fused models are 8-bit, made by an exact fp16 fuse re-quantised with
   `mlx_lm.convert` (`export.fuse_bits`, default 8). Fusing straight into the
   4-bit base rounded a light adapter away: the voice survived and recall did

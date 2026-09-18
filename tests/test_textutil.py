@@ -43,13 +43,20 @@ def test_chunk_never_splits_a_paragraph():
     assert all(t.words(p) <= 60 for p in pieces)
 
 
-def test_notes_are_the_opening_clause_of_each_paragraph():
-    text = "The first sentence runs on. And another.\n\nA second paragraph starts here too."
-    notes = t.notes_from(text)
-    assert notes.splitlines() == [
-        "- The first sentence runs on",
-        "- A second paragraph starts here too",
-    ]
+def test_notes_are_a_gist_not_the_opening_clause():
+    text = (
+        "A number on a slide is a decision that has already been made. The work was in "
+        "choosing it.\n\nThis is not an argument against measurement. It is an argument "
+        "for knowing which number you picked and why."
+    )
+    notes = t.notes_from(text).splitlines()
+    assert len(notes) == 2
+    for note, para in zip(notes, t.paragraphs(text)):
+        gist = note[2:]
+        assert gist == gist.lower()
+        assert not para.lower().startswith(gist[:20])  # cannot be copied as an opening
+        assert all(w not in t.STOPWORDS for w in gist.split())  # content words only
+    assert "slide decision already made" in notes[0]
 
 
 def test_notes_skip_lists_and_quotes():

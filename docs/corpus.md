@@ -159,8 +159,15 @@ Long sections are cut into pieces at paragraph boundaries, never mid-sentence,
 at `dataset.max_words_per_example`. Each piece after the first becomes a
 "continue this, it so far ends: ..." pair.
 
-One thing is synthetic. The `notes` pairs are made by taking the opening clause
-of each paragraph in a section and calling the result dictated notes. It is a
-crude imitation of how you would actually brief the model, and it works better
-than it deserves to, because the task it teaches — sparse input, finished prose
-out — is the one you will use it for.
+One thing is synthetic. The `notes` pairs are made by reducing each paragraph
+of a section to a gist of its content words, lower case, in order, with the
+paragraph's first few words skipped, and calling the result dictated notes. It
+is a crude imitation of how you would actually brief the model, and it works
+because the task it teaches — sparse input, finished prose out — is the one
+you will use it for.
+
+The gist is deliberately not the paragraph's opening clause. The first version
+of this used exactly that, and the trained model began every paragraph with the
+note verbatim, lower case and all, because in 323 of 345 training pairs that
+was the right answer. Synthetic pairs teach whatever pattern is in them; check
+a few before a long run.
