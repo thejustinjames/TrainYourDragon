@@ -1,0 +1,51 @@
+name: Bug report
+description: Something does not work the way the documentation says it does.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: [docs/troubleshooting.md](https://github.com/thejustinjames/TrainYourDragon/blob/main/docs/troubleshooting.md)
+        covers the common ones, and a model that writes well but invents facts
+        is [working as designed](https://github.com/thejustinjames/TrainYourDragon/blob/main/docs/voice-and-knowledge.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, and what it did.
+      placeholder: |
+        $ dragon build
+        dragon: the corpus produced no training pairs
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: The relevant part of your config.yaml
+      description: Paths and field names, with anything private removed.
+      render: yaml
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `dragon --version`.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Machine
+      placeholder: M4 MacBook Pro, 36 GB, macOS 26.1, Python 3.12
+    validations:
+      required: true

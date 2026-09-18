@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/thejustinjames/TrainYourDragon/security/advisories/new
+    about: Report a vulnerability privately, not as a public issue.
+  - name: Reading first
+    url: https://github.com/thejustinjames/TrainYourDragon/tree/main/docs
+    about: Troubleshooting, and what fine-tuning does and does not teach.

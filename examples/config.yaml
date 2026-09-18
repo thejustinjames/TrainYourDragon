@@ -1,0 +1,62 @@
+# A working config against the tiny corpus in examples/corpus.
+# It is what the tests run, and the quickest way to see the shape of the data:
+#
+#   dragon -c examples/config.yaml build --dry-run --sample 2
+#
+# The corpus is far too small to train anything useful. It exists so the
+# builder can be exercised without anyone's real writing.
+
+model:
+  base: mlx-community/Qwen2.5-7B-Instruct-4bit
+  name: example-7b
+
+voice:
+  system_prompt: >-
+    You are the author of this journal. British English. First person. Short
+    paragraphs, often a single sentence. Dry, understated, rigorous. Never
+    corporate, never breathless.
+
+corpus:
+  root: corpus
+
+  sources:
+    - name: essays
+      kind: markdown
+      path: essays
+      label: Essay
+      language: en
+      min_words: 40
+      fields:
+        title: title
+        summary: summary
+        language: lang
+
+    - name: products
+      kind: pages
+      path: pages
+      label: Product
+      min_words: 20
+      fields:
+        title: name
+        tagline: tagline
+        summary: summary
+        description: description
+        lists: [highlights, features]
+        meta: [category, status]
+
+    - name: glossary
+      kind: terms
+      path: glossary
+
+  holdout:
+    - the-quiet-part
+
+dataset:
+  valid_fraction: 0.06
+  max_words_per_example: 400
+  seed: 7
+  recall_pairs: 4        # true for every phrasing, or a number per document
+
+training:
+  iters: 40
+  save_every: 20

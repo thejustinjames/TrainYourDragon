@@ -1,0 +1,29 @@
+# Your writing, and everything derived from it, stays on your machine.
+data/
+adapters/
+adapters-*/
+fused/
+fused-fp16/
+*.jsonl
+config.yaml
+.dragon/
+
+# ...but the worked example is part of the repository, and the tests use it.
+!examples/config.yaml
+
+# Logs
+*.log
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store

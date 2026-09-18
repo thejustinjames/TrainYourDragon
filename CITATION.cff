@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: TrainYourDragon
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - given-names: Justin
+    family-names: James
+repository-code: https://github.com/thejustinjames/TrainYourDragon
+abstract: >-
+  Tooling to fine-tune a small open language model on one person's own writing,
+  on Apple silicon with MLX, and to serve, export and publish the result. It
+  learns register rather than knowledge, which the documentation is explicit
+  about.
+keywords:
+  - lora
+  - fine-tuning
+  - mlx
+  - apple-silicon
+  - writing
+  - local-llm
+license: MIT
+version: 0.1.0
+date-released: 2026-09-18

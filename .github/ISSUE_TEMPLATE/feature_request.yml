@@ -1,0 +1,28 @@
+name: Idea
+description: Something the tool should do and does not.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        [CONTRIBUTING.md](https://github.com/thejustinjames/TrainYourDragon/blob/main/CONTRIBUTING.md)
+        says what tends to get merged and what does not. It is a small project
+        with a narrow purpose, and saying no is most of keeping it that way.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were trying to do when you wanted this.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead

@@ -1,0 +1,5 @@
+# The whole thing, for a Mac that is going to train something.
+# Equivalent to: pip install -e '.[mlx,hub]'
+pyyaml>=6.0
+mlx-lm>=0.31
+huggingface_hub>=0.25

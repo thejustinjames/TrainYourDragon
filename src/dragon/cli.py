@@ -1,0 +1,349 @@
+"""`dragon` — the command line.
+
+dragon init       start a project here from the example config
+dragon doctor     check the machine, the config and the corpus
+dragon build      read the corpus, write data/{train,valid,test}.jsonl
+dragon train      fine-tune the adapter
+dragon test       loss on the held-out pieces the model never saw
+dragon write      a draft from a brief or from dictated notes
+dragon chat       an interactive session with the adapter loaded
+dragon fuse       bake the adapter into a standalone model
+dragon serve      an OpenAI-compatible endpoint on localhost
+dragon export     fused model into LM Studio and Ollama
+dragon publish    adapter (and optionally the model) to Hugging Face
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from dragon import __version__
+from dragon.config import CONFIG_NAME, Config
+from dragon.errors import DragonError
+from dragon.example import EXAMPLE_CONFIG
+
+
+# ------------------------------------------------------------------ helpers
+def _config(args: argparse.Namespace) -> Config:
+    return Config.load(args.config)
+
+
+def _corpus(config: Config):
+    from dragon import corpus
+
+    return corpus.load(config)
+
+
+# ----------------------------------------------------------------- commands
+def cmd_init(args: argparse.Namespace) -> int:
+    target = Path(args.config or CONFIG_NAME)
+    if target.exists() and not args.force:
+        raise DragonError(f"{target} already exists; --force to overwrite")
+    target.write_text(EXAMPLE_CONFIG, encoding="utf-8")
+    print(f"wrote {target}")
+    print("Edit corpus.root, the sources, and voice.system_prompt, then run `dragon doctor`.")
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    ok = True
+    print(f"dragon {__version__} · python {sys.version.split()[0]} · {sys.platform}")
+
+    try:
+        config = _config(args)
+        print(f"config     {config.path}")
+    except DragonError as exc:
+        print(f"config     ✗ {exc}")
+        return 1
+
+    if sys.platform == "darwin":
+        try:
+            import mlx_lm  # noqa: F401
+
+            print("mlx-lm     installed")
+        except ImportError:
+            ok = False
+            print("mlx-lm     ✗ not installed — pip install -e '.[mlx]'")
+    else:
+        print("mlx-lm     not applicable on this platform (training needs Apple silicon)")
+
+    try:
+        from huggingface_hub import whoami
+
+        try:
+            print(f"hugging face  signed in as {whoami()['name']}")
+        except Exception:
+            print("hugging face  not signed in (only needed to publish)")
+    except ImportError:
+        print("hugging face  huggingface_hub not installed (only needed to publish)")
+
+    print(f"corpus     {config.corpus_root}")
+    if not config.corpus_root.exists():
+        ok = False
+        print("           ✗ that directory does not exist")
+
+    try:
+        documents = _corpus(config)
+    except DragonError as exc:
+        print(f"           ✗ {exc}")
+        return 1
+
+    for source in config.sources:
+        found = [d for d in documents if d.source is source]
+        note = f"{len(found)} document(s)"
+        if source.kind == "terms":
+            note += f", {sum(len(d.terms) for d in found)} terms"
+        print(f"  {source.name:<14} {source.kind:<10} {note}")
+        if not found:
+            ok = False
+            print("                 ✗ nothing found here")
+
+    holdout = [d.key for d in documents if d.holdout]
+    if holdout:
+        print("held out   " + ", ".join(holdout))
+    else:
+        ok = False
+        print("held out   ✗ nothing, so `dragon test` will have nothing to measure")
+
+    print("ok" if ok else "\nSomething above needs attention.")
+    return 0 if ok else 1
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    from dragon import dataset
+
+    config = _config(args)
+    documents = _corpus(config)
+    data = dataset.build(config, documents)
+    if args.dry_run:
+        print("(dry run, nothing written)")
+    else:
+        data.write(config.data_dir)
+        stats = {
+            "train": len(data.train),
+            "valid": len(data.valid),
+            "test": len(data.test),
+            "target_words": data.target_words,
+            "by_tag": data.by_tag,
+        }
+        (config.data_dir / "stats.json").write_text(json.dumps(stats, indent=2))
+
+    print(
+        f"train {len(data.train):,} examples / {data.target_words:,} words of target text"
+        f" · valid {len(data.valid):,} · held out {len(data.test):,}"
+    )
+    print("by kind: " + ", ".join(f"{k} {v:,}" for k, v in data.by_tag.items()))
+    if args.sample:
+        for example in data.train[: args.sample]:
+            print("\n" + "─" * 72)
+            print(example.messages[1]["content"])
+            print("─" * 72)
+            print(example.messages[2]["content"][:600])
+    return 0
+
+
+def cmd_train(args: argparse.Namespace) -> int:
+    from dragon import mlxops
+
+    config = _config(args)
+    if not args.no_build:
+        cmd_build(argparse.Namespace(config=args.config, dry_run=False, sample=0))
+    return mlxops.train(config, resume=args.resume, extra_args=args.extra)
+
+
+def cmd_test(args: argparse.Namespace) -> int:
+    from dragon import mlxops
+
+    return mlxops.test(_config(args))
+
+
+def cmd_write(args: argparse.Namespace) -> int:
+    from dragon.generate import brief_from_notes, write
+
+    config = _config(args)
+    if args.notes:
+        notes = sys.stdin.read() if args.notes == "-" else Path(args.notes).read_text()
+        brief = brief_from_notes(notes, args.title, args.section, args.label)
+    elif args.brief:
+        brief = args.brief.replace("\\n", "\n")
+    else:
+        raise DragonError("give a brief, or --notes FILE (or --notes - for stdin)")
+
+    text = write(
+        config,
+        brief,
+        base=args.base,
+        max_tokens=args.max_tokens,
+        temperature=args.temp,
+    )
+    if args.out:
+        Path(args.out).write_text(text + "\n", encoding="utf-8")
+        print(f"wrote {args.out}")
+    else:
+        print(text)
+    return 0
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    from dragon import mlxops
+
+    return mlxops.chat(_config(args), extra_args=args.extra)
+
+
+def cmd_fuse(args: argparse.Namespace) -> int:
+    from dragon import mlxops
+
+    config = _config(args)
+    path = mlxops.fuse(config, dequantize=args.dequantize, force=args.force)
+    print(path)
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from dragon import mlxops
+
+    return mlxops.serve(_config(args), host=args.host, port=args.port)
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    from dragon import cards, mlxops
+
+    config = _config(args)
+    fused = mlxops.fuse(config)
+    if not args.no_lm_studio:
+        export = config.raw.get("export") or {}
+        mlxops.lm_studio_link(fused, export.get("lm_studio_name") or config.model_name)
+    if not args.no_ollama:
+        fp16 = mlxops.fuse(config, dequantize=True)
+        path = config.work_dir / "Modelfile"
+        path.write_text(cards.modelfile(config, fp16), encoding="utf-8")
+        tag = args.tag or f"{config.model_name}:latest"
+        mlxops.ollama_import(config, path, tag)
+    return 0
+
+
+def cmd_publish(args: argparse.Namespace) -> int:
+    from dragon.publish import publish
+
+    config = _config(args)
+    if not args.private and not args.yes:
+        print(
+            "\nA model trained on one person's writing reproduces that person's voice.\n"
+            "Published openly it can be used to impersonate them, and it cannot be\n"
+            "recalled once downloaded. Publish publicly only if everyone whose writing\n"
+            "is in the corpus has agreed.\n"
+        )
+        if input("Publish publicly? type 'yes' to continue: ").strip().lower() != "yes":
+            print("stopped")
+            return 1
+    publish(
+        config,
+        fused=args.fused,
+        private=args.private,
+        adapter_repo=args.repo,
+        fused_repo=args.fused_repo,
+        owner=args.owner,
+    )
+    return 0
+
+
+def cmd_card(args: argparse.Namespace) -> int:
+    from dragon.cards import model_card
+
+    print(model_card(_config(args), fused=args.fused, private=True))
+    return 0
+
+
+# ------------------------------------------------------------------- parser
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="dragon", description=__doc__.split("\n")[0])
+    p.add_argument("--version", action="version", version=f"dragon {__version__}")
+    p.add_argument("-c", "--config", help=f"path to {CONFIG_NAME} (default: the current directory)")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    s = sub.add_parser("init", help="write a starting config.yaml here")
+    s.add_argument("--force", action="store_true")
+    s.set_defaults(func=cmd_init)
+
+    s = sub.add_parser("doctor", help="check the machine, the config and the corpus")
+    s.set_defaults(func=cmd_doctor)
+
+    s = sub.add_parser("build", help="read the corpus and write the training set")
+    s.add_argument("--dry-run", action="store_true", help="count the pairs, write nothing")
+    s.add_argument("--sample", type=int, default=0, metavar="N", help="print N example pairs")
+    s.set_defaults(func=cmd_build)
+
+    s = sub.add_parser("train", help="fine-tune the adapter")
+    s.add_argument("--no-build", action="store_true", help="use data/ as it stands")
+    s.add_argument("--resume", action="store_true", help="carry on from the current adapter")
+    s.add_argument("extra", nargs="*", help="passed through to mlx_lm.lora")
+    s.set_defaults(func=cmd_train)
+
+    s = sub.add_parser("test", help="loss on the held-out pieces")
+    s.set_defaults(func=cmd_test)
+
+    s = sub.add_parser("write", help="a draft from a brief or from notes")
+    s.add_argument("brief", nargs="?")
+    s.add_argument("--notes", help="file of dictated notes, or - for stdin")
+    s.add_argument("--title", default="Untitled")
+    s.add_argument("--section")
+    s.add_argument("--label", default="piece", help="what to call the thing: essay, page, post")
+    s.add_argument("--base", action="store_true", help="the base model, no adapter, for comparison")
+    s.add_argument("--max-tokens", type=int, default=900)
+    s.add_argument("--temp", type=float, default=0.7)
+    s.add_argument("-o", "--out", help="write to a file instead of stdout")
+    s.set_defaults(func=cmd_write)
+
+    s = sub.add_parser("chat", help="interactive session with the adapter loaded")
+    s.add_argument("extra", nargs="*", help="passed through to mlx_lm.chat")
+    s.set_defaults(func=cmd_chat)
+
+    s = sub.add_parser("fuse", help="bake the adapter into a standalone model")
+    s.add_argument("--dequantize", action="store_true", help="fp16, for an Ollama import")
+    s.add_argument("--force", action="store_true", help="rebuild even if it exists")
+    s.set_defaults(func=cmd_fuse)
+
+    s = sub.add_parser("serve", help="OpenAI-compatible endpoint on localhost")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8787)
+    s.set_defaults(func=cmd_serve)
+
+    s = sub.add_parser("export", help="into LM Studio and Ollama")
+    s.add_argument("--tag", help="the Ollama tag (default: <model name>:latest)")
+    s.add_argument("--no-ollama", action="store_true")
+    s.add_argument("--no-lm-studio", action="store_true")
+    s.set_defaults(func=cmd_export)
+
+    s = sub.add_parser("publish", help="to the Hugging Face Hub")
+    s.add_argument("--fused", action="store_true", help="the fused model too (several GB)")
+    s.add_argument("--public", dest="private", action="store_false", help="read the warning first")
+    s.add_argument("--yes", action="store_true", help="skip the confirmation for --public")
+    s.add_argument("--repo", help="adapter repository id (default: <user>/<model name>-lora)")
+    s.add_argument("--fused-repo", help="fused repository id")
+    s.add_argument("--owner", help="publish under an organisation instead of your account")
+    s.set_defaults(func=cmd_publish, private=True)
+
+    s = sub.add_parser("card", help="print the model card that publish would upload")
+    s.add_argument("--fused", action="store_true")
+    s.set_defaults(func=cmd_card)
+
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except DragonError as exc:
+        print(f"dragon: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nstopped", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
