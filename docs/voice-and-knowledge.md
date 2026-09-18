@@ -86,6 +86,19 @@ section of yours usually runs six paragraphs. It has nothing to put in the
 sixth. So it pads, in your voice, which is much harder to spot than padding in
 someone else's.
 
+## The knowledge is fragile in a way the voice is not
+
+The same asymmetry shows up at export. Fuse a trained adapter into a 4-bit
+base and re-quantise, and the voice comes through while the recall vanishes:
+the model still sounds right and once again describes the wrong product. A
+light adapter moves each weight by less than a 4-bit step, so rounding undoes
+it. The voice is spread across millions of weights and survives the averaging;
+the memory of a specific page lives in a few and does not. This is why every
+export here is 8-bit, and the mechanics are in [serving](serving.md). It is
+also a fair picture of what the two kinds of learning are: one is a change of
+texture across the whole model, the other is a handful of facts balanced on a
+handful of numbers.
+
 ## What to do about the knowledge half
 
 Don't solve it with fine-tuning. The tools that work:

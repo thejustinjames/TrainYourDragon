@@ -289,7 +289,10 @@ def cmd_export(args: argparse.Namespace) -> int:
         path = config.work_dir / "Modelfile"
         path.write_text(cards.modelfile(config, source), encoding="utf-8")
         tag = args.tag or f"{config.model_name}:latest"
-        mlxops.ollama_import(config, path, tag, quantise=None if source.is_file() else "q4_K_M")
+        # q8_0, not q4_K_M: see mlxops.fuse for why four bits loses the adapter.
+        ollama = (config.raw.get("export") or {}).get("ollama") or {}
+        quantise = None if source.is_file() else str(ollama.get("quantise", "q8_0"))
+        mlxops.ollama_import(config, path, tag, quantise=quantise)
     return 0
 
 
@@ -474,7 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_chat)
 
     s = sub.add_parser("fuse", help="bake the adapter into a standalone model")
-    s.add_argument("--dequantize", action="store_true", help="fp16, for an Ollama import")
+    s.add_argument("--dequantize", action="store_true", help="stop at the exact fp16 fuse")
     s.add_argument("--force", action="store_true", help="rebuild even if it exists")
     s.set_defaults(func=cmd_fuse)
 
@@ -510,12 +513,14 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_studio)
 
     s = sub.add_parser("gguf", help="a GGUF export, for Ollama on any machine")
-    s.add_argument("--quant", default="Q4_K_M", help="llama-quantize type (default Q4_K_M)")
+    s.add_argument(
+        "--quant", default="Q8_0", help="llama-quantize type (default Q8_0; Q4 loses the adapter)"
+    )
     s.add_argument("--force", action="store_true", help="rebuild even if the files exist")
     s.set_defaults(func=cmd_gguf)
 
     s = sub.add_parser("publish", help="to the Hugging Face Hub")
-    s.add_argument("--fused", action="store_true", help="the fused model too (several GB)")
+    s.add_argument("--fused", action="store_true", help="the fused model too (about 8 GB for a 7B)")
     s.add_argument("--gguf", action="store_true", help="the GGUF export too, for Ollama")
     s.add_argument("--public", dest="private", action="store_false", help="read the warning first")
     s.add_argument("--yes", action="store_true", help="skip the confirmation for --public")

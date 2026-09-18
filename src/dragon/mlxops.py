@@ -112,28 +112,59 @@ def chat(config: Config, extra_args: list[str] | None = None) -> int:
 
 # ------------------------------------------------------------------ fusing
 def fuse(config: Config, *, dequantize: bool = False, force: bool = False) -> Path:
-    """Bake the adapter into the base weights, giving a standalone model folder."""
+    """Bake the adapter into the base weights, giving a standalone model folder.
+
+    Always by way of fp16. Fusing straight into a 4-bit base and re-quantising
+    rounds most of a light adapter away: each weight has moved by less than a
+    4-bit quantisation step. The voice, spread across millions of weights,
+    survives that; the recall of a specific page, which lives in a few, does
+    not. So `fused/` is the exact fp16 fuse re-quantised at `export.fuse_bits`,
+    8 by default, and `fused-fp16/` is kept because Ollama and GGUF want it.
+    """
     require_mlx()
-    target = config.fused_fp16_dir if dequantize else config.fused_dir
+    fp16 = config.fused_fp16_dir
+    if force or not (fp16 / "config.json").exists():
+        if not (config.adapter_dir / "adapters.safetensors").exists():
+            raise DragonError(f"no adapter at {config.adapter_dir}. Train one first.")
+        args = module("mlx_lm.fuse") + [
+            "--model",
+            config.base_model,
+            "--adapter-path",
+            str(config.adapter_dir),
+            "--save-path",
+            str(fp16),
+            "--dequantize",
+        ]
+        if run(args, cwd=config.root) != 0:
+            raise DragonError("mlx_lm.fuse failed")
+    if dequantize:
+        return fp16
+
+    bits = config.fuse_bits
+    if bits >= 16:
+        apply_default_prompt(config, fp16)
+        return fp16
+    if bits < 8:
+        print(
+            f"warning: export.fuse_bits is {bits}. Below 8 bits a light adapter is mostly "
+            "rounded away on re-quantisation: the voice survives, recall does not."
+        )
+    target = config.fused_dir
     if (target / "config.json").exists() and not force:
         print(f"{target} exists; --force to rebuild")
         return target
-    if not (config.adapter_dir / "adapters.safetensors").exists():
-        raise DragonError(f"no adapter at {config.adapter_dir}. Train one first.")
-    args = module("mlx_lm.fuse") + [
-        "--model",
-        config.base_model,
-        "--adapter-path",
-        str(config.adapter_dir),
-        "--save-path",
+    args = module("mlx_lm.convert") + [
+        "--hf-path",
+        str(fp16),
+        "--mlx-path",
         str(target),
+        "-q",
+        "--q-bits",
+        str(bits),
     ]
-    if dequantize:
-        args.append("--dequantize")
     if run(args, cwd=config.root) != 0:
-        raise DragonError("mlx_lm.fuse failed")
-    if not dequantize:
-        apply_default_prompt(config, target)
+        raise DragonError("mlx_lm.convert failed")
+    apply_default_prompt(config, target)
     return target
 
 
@@ -164,8 +195,11 @@ def apply_default_prompt(config: Config, model_dir: Path) -> int:
 def serve(config: Config, *, host: str = "127.0.0.1", port: int = 8787) -> int:
     """An OpenAI-compatible endpoint on the loopback interface.
 
-    The fused model is served rather than base-plus-adapter so that whichever
-    id a client reads back from /v1/models resolves to the same weights.
+    The fused model is served rather than base-plus-adapter for two reasons:
+    whichever id a client reads back from /v1/models then resolves to the same
+    weights, and mlx_lm.server (0.31) resolves `default_model` to the real path
+    before it looks the adapter up, so an adapter given on the command line is
+    silently never applied.
     """
     require_mlx()
     fused = fuse(config)
@@ -183,9 +217,7 @@ def serve(config: Config, *, host: str = "127.0.0.1", port: int = 8787) -> int:
 
 
 # ------------------------------------------------------------------ ollama
-def ollama_import(
-    config: Config, modelfile: Path, tag: str, quantise: str | None = "q4_K_M"
-) -> int:
+def ollama_import(config: Config, modelfile: Path, tag: str, quantise: str | None = "q8_0") -> int:
     if not shutil.which("ollama"):
         print("ollama is not installed; skipped")
         return 0

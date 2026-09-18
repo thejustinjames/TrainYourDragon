@@ -23,6 +23,8 @@ does the same in less time.
 
 The default is `mlx-community/Qwen2.5-7B-Instruct-4bit`: 7B parameters,
 quantised to four bits, about 4 GB on disk and 13 GB of memory while training.
+The fused model you export afterwards is larger, about 8 GB, because it is
+re-quantised at 8 bits; [serving](serving.md) says why that is not optional.
 It is a good trade at the time of writing.
 
 | Memory | Sensible choice |
@@ -193,7 +195,7 @@ OpenAI API.
 
 ```bash
 dragon publish            # the adapter, private, about 50 MB
-dragon publish --fused    # the whole model, several GB
+dragon publish --fused    # the whole 8-bit model, about 8 GB
 dragon gguf && dragon publish --gguf    # a GGUF, so Ollama anywhere can pull it
 ```
 

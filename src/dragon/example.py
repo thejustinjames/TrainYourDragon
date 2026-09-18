@@ -135,12 +135,18 @@ training:
       - mlp.down_proj
 
 export:
-  lm_studio_name: myname/myvoice-7b-mlx-4bit
+  # The fused model is the exact fp16 fuse re-quantised to this many bits. Eight,
+  # not four: a light adapter moves each weight by less than a 4-bit step, so a
+  # 4-bit re-quantisation rounds most of it away. Voice survives; recall does not.
+  fuse_bits: 8
+  lm_studio_name: myname/myvoice-7b-mlx-8bit
   gguf:
     # A llama.cpp checkout, for `dragon gguf`. Also found via $LLAMA_CPP or
     # ~/llama.cpp. The quantiser is `llama-quantize` on PATH (brew install llama.cpp).
     llama_cpp: ~/llama.cpp
   ollama:
+    # Same reason: q8_0, not q4_K_M.
+    quantise: q8_0
     parameters:
       temperature: 0.7
       top_p: 0.9

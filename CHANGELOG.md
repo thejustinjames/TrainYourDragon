@@ -6,6 +6,18 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Fused models are 8-bit, made by an exact fp16 fuse re-quantised with
+  `mlx_lm.convert` (`export.fuse_bits`, default 8). Fusing straight into the
+  4-bit base rounded a light adapter away: the voice survived and recall did
+  not. The Ollama import is `q8_0` and the GGUF default is `Q8_0` for the same
+  reason, and the fused Hub repository is named `<name>-mlx-8bit`. The model
+  card and `docs/serving.md` explain it.
+- `dragon serve` documents why it serves the fused directory: `mlx_lm.server`
+  resolves `default_model` before looking an adapter up, so base-plus-adapter
+  never applies the adapter.
+
 ### Added
 
 - `dragon studio`: the observability studio. A read-only page on localhost that

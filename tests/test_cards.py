@@ -31,6 +31,13 @@ def test_the_modelfile_names_the_source_and_the_prompt(tmp_path):
     assert "PARAMETER stop <|im_end|>" in text
 
 
+def test_the_fused_card_says_it_is_eight_bit_and_why():
+    card = model_card(config(), flavour="fused", private=True)
+    assert "8-bit MLX model" in card
+    assert "Why eight bits" in card and "rounds most of it away" in card
+    assert "Why eight bits" not in model_card(config(), flavour="adapter", private=True)
+
+
 def test_the_gguf_card_tells_ollama_users_how_to_pull():
     card = model_card(config(), flavour="gguf", private=True)
     meta = yaml.safe_load(card.split("---")[1])

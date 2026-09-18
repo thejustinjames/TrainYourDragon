@@ -145,14 +145,16 @@ dragon gguf       # a GGUF, so Ollama on any machine can pull it from the Hub
 ```
 
 Anything that speaks the OpenAI API can point at the endpoint. See
-[docs/serving.md](docs/serving.md), including the trap where a client picks the
-untouched base model off `/v1/models` and you wonder why the voice vanished.
+[docs/serving.md](docs/serving.md), including two traps: a client picking the
+untouched base model off `/v1/models`, and the bigger one, that fusing into
+a 4-bit base rounds a light adapter away. Exports here are 8-bit for that
+reason, and the document says why.
 
 ## Put it on Hugging Face
 
 ```bash
 dragon publish            # the adapter, private, with a generated model card
-dragon publish --fused    # the whole fused model too, several GB
+dragon publish --fused    # the whole fused model too, 8-bit, about 8 GB
 dragon publish --gguf     # the GGUF export: ollama run hf.co/<you>/<name>-gguf
 ```
 

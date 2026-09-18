@@ -10,12 +10,13 @@ Two artefacts, and they serve different purposes.
 | | What it is | Size | Publish it when |
 |---|---|---|---|
 | The adapter | `adapters.safetensors` and its config | around 50 MB | Always. It is the thing to version |
-| The fused model | the adapter baked into the base: weights, config, tokeniser, chat template | 4 GB and up | You want to load and go, or hand LM Studio a folder |
+| The fused model | the adapter baked into the base at 8 bits: weights, config, tokeniser, chat template | about 8 GB for a 7B | You want to load and go, or hand LM Studio a folder |
 | The GGUF | the fused model converted for llama.cpp, quantised, with Ollama's `template`, `system` and `params` files | 4–5 GB | You want `ollama run` to work on a machine that is not a Mac, or without any of this installed |
 
 The adapter is the interesting object: small enough to keep every version of,
 and useless without the base model, which is a mild security property in its
-own right.
+own right. The fused model is 8-bit rather than 4 on purpose; a 4-bit fuse
+keeps the voice and loses the recall, for reasons in [serving](serving.md).
 
 ```bash
 dragon publish            # the adapter and a generated model card
@@ -57,12 +58,12 @@ each request is approved by hand.
 ## Naming
 
 By default the repositories are `<you>/<model.name>-lora`,
-`<you>/<model.name>-mlx` and `<you>/<model.name>-gguf`, from the `name` in
+`<you>/<model.name>-mlx-8bit` and `<you>/<model.name>-gguf`, from the `name` in
 `config.yaml`. Override per run:
 
 ```bash
 dragon publish --repo myorg/house-voice-lora
-dragon publish --fused --fused-repo myorg/house-voice-mlx
+dragon publish --fused --fused-repo myorg/house-voice-mlx-8bit
 dragon publish --gguf --gguf-repo myorg/house-voice-gguf
 dragon publish --owner myorg          # publish under an organisation
 ```
@@ -93,7 +94,7 @@ Sign in as above, then:
 from mlx_lm import load, generate
 
 # The fused model, straight from the Hub
-model, tok = load("you/myvoice-7b-mlx")
+model, tok = load("you/myvoice-7b-mlx-8bit")
 
 # Or the base model with the adapter on top
 from huggingface_hub import snapshot_download
@@ -104,20 +105,20 @@ model, tok = load("mlx-community/Qwen2.5-7B-Instruct-4bit", adapter_path=adapter
 Just the files:
 
 ```bash
-python -c "from huggingface_hub import snapshot_download as d; print(d('you/myvoice-7b-mlx'))"
+python -c "from huggingface_hub import snapshot_download as d; print(d('you/myvoice-7b-mlx-8bit'))"
 ```
 
 prints the local folder, which is what you link into LM Studio:
 
 ```bash
-ln -s "$(python -c "from huggingface_hub import snapshot_download as d; print(d('you/myvoice-7b-mlx'))")" \
-  ~/.cache/lm-studio/models/you/myvoice-7b-mlx
+ln -s "$(python -c "from huggingface_hub import snapshot_download as d; print(d('you/myvoice-7b-mlx-8bit'))")" \
+  ~/.cache/lm-studio/models/you/myvoice-7b-mlx-8bit
 ```
 
 Serve it directly:
 
 ```bash
-mlx_lm.server --model you/myvoice-7b-mlx --port 8787
+mlx_lm.server --model you/myvoice-7b-mlx-8bit --port 8787
 ```
 
 Remember the system prompt. It is in the fused model's chat template as the
@@ -129,7 +130,7 @@ GGUF and those are MLX. It can pull the GGUF one, on any machine, with nothing
 else installed:
 
 ```bash
-ollama run hf.co/you/myvoice-7b-gguf:Q4_K_M
+ollama run hf.co/you/myvoice-7b-gguf:Q8_0
 ```
 
 For a private repository, put a read token in Ollama's settings first. The

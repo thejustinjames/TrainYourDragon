@@ -2,7 +2,7 @@
 
 MLX weights only run on Apple silicon and only in MLX. GGUF runs in llama.cpp
 and everything built on it, Ollama included, and Ollama can pull a GGUF
-repository straight from the Hub: `ollama run hf.co/<user>/<repo>:Q4_K_M`.
+repository straight from the Hub: `ollama run hf.co/<user>/<repo>:Q8_0`.
 
 mlx-lm's own GGUF writer only knows the Llama architecture, so this uses
 llama.cpp's converter on the dequantised fused model, then llama-quantize.
@@ -25,7 +25,7 @@ from dragon.mlxops import fuse, run
 
 CONVERTER = "convert_hf_to_gguf.py"
 QUANTISER = "llama-quantize"
-DEFAULT_QUANT = "Q4_K_M"
+DEFAULT_QUANT = "Q8_0"  # not Q4: a 4-bit re-quantisation rounds a light adapter away
 
 CANDIDATE_CHECKOUTS = ["~/llama.cpp", "~/src/llama.cpp", "~/Documents/GitHub/llama.cpp"]
 

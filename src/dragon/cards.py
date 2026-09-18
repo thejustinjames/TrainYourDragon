@@ -35,7 +35,7 @@ def adapter_facts(config: Config) -> dict:
 
 FLAVOURS = {
     "adapter": "a LoRA adapter for",
-    "fused": "the fused MLX model of",
+    "fused": "the fused {bits}-bit MLX model of",
     "gguf": "the GGUF export of",
 }
 
@@ -46,7 +46,7 @@ def model_card(config: Config, *, flavour: str = "adapter", private: bool) -> st
     today = datetime.date.today().strftime("%d %B %Y")
     if flavour not in FLAVOURS:
         raise ValueError(f"unknown card flavour {flavour!r}")
-    what = FLAVOURS[flavour]
+    what = FLAVOURS[flavour].format(bits=config.fuse_bits)
     joined = "on" if flavour == "adapter" else "fused into"
     library = "gguf" if flavour == "gguf" else "mlx"
     tags = ["lora", library, "writing-style", "fine-tune"]
@@ -63,6 +63,16 @@ def model_card(config: Config, *, flavour: str = "adapter", private: bool) -> st
             "- keys: " + ", ".join(lora.get("keys", [])),
         ]
     )
+
+    why_bits = ""
+    if flavour != "adapter":
+        why_bits = (
+            "## Why eight bits\n\n"
+            f"Fused at {config.fuse_bits} bits on purpose. A light adapter moves each weight by "
+            "less than a 4-bit quantisation step, so fusing into a 4-bit base and re-quantising "
+            "rounds most of it away: the voice survives, the recall of anything specific does "
+            "not. Load this directory directly; the voice prompt is the chat template's default.\n\n"
+        )
 
     stats = config.root / "data" / "stats.json"
     corpus_line = ""
@@ -113,7 +123,7 @@ The adapter was trained with this prompt on every example, and expects it:
 
 {settings}
 
-## What it is not
+{why_bits}## What it is not
 
 Not a writer, not a source of facts, and not a way round any disclosure
 obligation. A model trained to write in a named person's voice is an
@@ -127,7 +137,7 @@ def _load_snippet(config: Config, flavour: str) -> str:
         return (
             "With Ollama, on any machine, straight from this repository:\n\n"
             "```bash\n"
-            "ollama run hf.co/<this repo>:Q4_K_M\n"
+            "ollama run hf.co/<this repo>:Q8_0\n"
             "```\n\n"
             "The `template`, `system` and `params` files here give Ollama the chat\n"
             "template, the voice prompt and the sampling settings, so no Modelfile is\n"

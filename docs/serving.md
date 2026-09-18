@@ -8,13 +8,40 @@ HTTP endpoint, LM Studio, and Ollama.
 Most of what follows needs the adapter baked into the base weights:
 
 ```bash
-dragon fuse                 # fused/        4-bit MLX, about 4 GB
-dragon fuse --dequantize    # fused-fp16/   about 14 GB, only for the Ollama import
+dragon fuse                 # fused-fp16/ (exact, ~15 GB) then fused/ (8-bit MLX, ~8 GB)
+dragon fuse --dequantize    # stop at the fp16 fuse
 dragon fuse --force         # rebuild after promoting a different checkpoint
 ```
 
 Fusing also writes the system prompt into the model's chat template as its
 default, which matters more than it sounds like it should. See below.
+
+### Eight bits, not four
+
+The obvious thing to do is fuse the adapter into the 4-bit base you trained
+on and get a 4-bit model back. Do not. It was the default here until an
+afternoon was lost to it.
+
+A rank-8 adapter trained at a low learning rate moves each weight by less
+than a 4-bit quantisation step. Re-quantise after the fuse and most of the
+change rounds back to where it started. The voice survives, because it is
+spread thinly across millions of weights and the rounding averages out. The
+recall of a specific page does not, because it lives in a few weights and
+each of those is rounded individually. The symptom is a model that sounds
+exactly right and, asked about something it plainly learnt, describes a
+generic thing instead. It is easy to mistake for a training failure.
+
+So `dragon fuse` always goes by way of fp16, which is exact, and then
+re-quantises with `mlx_lm.convert` at `export.fuse_bits`, 8 by default. At
+eight bits the step is sixteen times smaller and the adapter's changes
+survive. The cost is a 7B model of about 8 GB rather than 4. The same rule
+applies to the Ollama import (`q8_0`, not `q4_K_M`) and the GGUF export
+(`Q8_0`). If you set `fuse_bits: 4` the command warns and does it anyway.
+
+Base-plus-adapter is not a way round this for the endpoint, because
+`mlx_lm.server` resolves `default_model` to the real path before it looks the
+adapter up and never applies it. `dragon serve` serves the fused directory for
+that reason.
 
 ## The endpoint
 
@@ -106,9 +133,9 @@ MLX weights run on Apple silicon only. A GGUF runs in llama.cpp and everything
 built on it, and Ollama can pull one straight from the Hub on any machine:
 
 ```bash
-dragon gguf                     # gguf/<name>-f16.gguf and gguf/<name>-Q4_K_M.gguf
-dragon gguf --quant Q5_K_M
-dragon publish --gguf           # → ollama run hf.co/<you>/<name>-gguf:Q4_K_M
+dragon gguf                     # gguf/<name>-f16.gguf and gguf/<name>-Q8_0.gguf
+dragon gguf --quant Q6_K        # anything llama-quantize knows; below Q8 you lose recall
+dragon publish --gguf           # → ollama run hf.co/<you>/<name>-gguf:Q8_0
 ```
 
 Two tools are needed and neither is bundled. The converter is
@@ -130,7 +157,9 @@ machine that pulls the model gets the voice rather than the base persona,
 without a Modelfile. A Modelfile is written too, for a local `ollama create`.
 
 Once a GGUF exists, `dragon export` imports that into the local Ollama instead
-of re-quantising from the fp16 safetensors, which is faster.
+of re-quantising from the fp16 safetensors, which is faster. Either way the
+Ollama model is 8-bit; `export.ollama.quantise` changes it, and the section
+above says why you should not.
 
 ## Wiring it into your own tools
 

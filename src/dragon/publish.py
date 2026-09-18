@@ -72,7 +72,7 @@ def publish(
         fused_dir = config.fused_dir
         if not (fused_dir / "config.json").exists():
             raise DragonError(f"no fused model at {fused_dir}. Run `dragon fuse` first.")
-        repo = fused_repo or f"{owner}/{config.model_name}-mlx"
+        repo = fused_repo or f"{owner}/{config.model_name}-mlx-{config.fuse_bits}bit"
         api.create_repo(repo, private=private, exist_ok=True, repo_type="model")
         (fused_dir / "README.md").write_text(
             model_card(config, flavour="fused", private=private), encoding="utf-8"

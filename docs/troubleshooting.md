@@ -71,6 +71,12 @@ instead.
 **It is confidently wrong about your own products.** Same document. Recall
 pairs help; retrieval is the honest fix.
 
+**It recalls things fine with `dragon write` and forgets them all through the
+endpoint, LM Studio or Ollama.** The fused model was quantised to 4 bits,
+which rounds the adapter away. Check `export.fuse_bits` is 8, `dragon fuse
+--force`, and re-export; for Ollama, `q8_0`, not `q4_K_M`. [Serving](serving.md)
+has the mechanism.
+
 ## The studio
 
 **Port 8790 is in use.** At a terminal the studio says by what and asks

@@ -119,6 +119,13 @@ class Config:
         return self.root / "fused-fp16"
 
     @property
+    def fuse_bits(self) -> int:
+        """How many bits the fused model is re-quantised to. 8 unless told otherwise:
+        a 4-bit re-quantisation rounds a light adapter's effect away."""
+        export = self.raw.get("export") or {}
+        return int(export.get("fuse_bits", 8))
+
+    @property
     def work_dir(self) -> Path:
         d = self.root / ".dragon"
         d.mkdir(exist_ok=True)
