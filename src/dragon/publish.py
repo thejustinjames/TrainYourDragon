@@ -42,11 +42,20 @@ def publish(
     fused_repo: str | None = None,
     gguf_repo: str | None = None,
     owner: str | None = None,
+    tag: str | None = None,
 ) -> list[str]:
+    """Upload, and return the repository URLs. With `tag`, each repository's new
+    head is tagged, so a version can be pulled by name later rather than by
+    commit sha: `snapshot_download(repo, revision="v2")`."""
     api, user = _api()
     owner = owner or user
     today = datetime.date.today().strftime("%d %B %Y")
     urls = []
+
+    def tagged(repo: str) -> None:
+        if tag:
+            api.create_tag(repo, tag=tag, tag_message=f"{tag}, {today}", exist_ok=True)
+            print(f"  tagged {tag}")
 
     adapter_dir = config.adapter_dir
     if not (adapter_dir / "adapters.safetensors").exists():
