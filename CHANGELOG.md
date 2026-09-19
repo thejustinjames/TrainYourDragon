@@ -24,6 +24,8 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- `dragon fuse` stages GPU output locally and moves it through the symlink, so
+  models kept on an external drive are never read by the GPU from that drive.
 - Documentation for keeping fused models on an external drive behind symlinks,
   and for verifying a copy before removing the original.
 - `dragon studio`: the observability studio. A read-only page on localhost that

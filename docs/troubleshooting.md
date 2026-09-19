@@ -97,6 +97,18 @@ found. Keep an old log as `train-run1.log` (and its adapters as
 
 **`no adapter at adapters/`** — train one, or point at another directory.
 
+**`[METAL] Command buffer execution failed: Caused GPU Timeout Error` during
+`fuse`, `export` or `gguf`.** The weights being read sit on a slow external
+volume. `dragon fuse` stages locally; if you ran `mlx_lm.convert` by hand,
+point it at a local copy. If it happens during training with the corpus on
+the internal disk, look for another process holding the GPU or most of the
+memory; a container runtime's VM is the usual one.
+
+**`Discarded (victim of GPU error/recovery)` during training.** Something else
+faulted the GPU and the trainer was collateral, almost always memory pressure.
+Quit whatever else is large (a Docker VM, a loaded model in LM Studio) and
+restart the run; nothing is lost beyond the time since the last checkpoint.
+
 **The disk is full.** The fused models are 8 GB and 15 GB each. Move them to
 an external drive and leave symlinks at `fused/` and `fused-fp16/`; [serving](serving.md)
 has the sequence. Do not move `adapters/`.

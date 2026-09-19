@@ -111,6 +111,28 @@ def chat(config: Config, extra_args: list[str] | None = None) -> int:
 
 
 # ------------------------------------------------------------------ fusing
+def _staging(config: Config, name: str) -> Path:
+    """Where GPU output is written before it is moved into place.
+
+    If the target is a symlink to an external drive, writing there directly
+    is the mistake: the GPU stalls on page faults from a slow volume and Metal
+    reports a timeout. So the fuse and the quantisation write locally, and the
+    finished directory is moved in afterwards.
+    """
+    return config.work_dir / f"{name}.staging"
+
+
+def _install(staging: Path, target: Path) -> None:
+    """Move a finished model directory into place, through a symlink if there is one."""
+    real = Path(os.readlink(target)) if target.is_symlink() else target
+    if not real.is_absolute():
+        real = target.parent / real
+    if real.exists():
+        shutil.rmtree(real)
+    real.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(staging), str(real))
+
+
 def fuse(config: Config, *, dequantize: bool = False, force: bool = False) -> Path:
     """Bake the adapter into the base weights, giving a standalone model folder.
 
@@ -120,23 +142,30 @@ def fuse(config: Config, *, dequantize: bool = False, force: bool = False) -> Pa
     survives that; the recall of a specific page, which lives in a few, does
     not. So `fused/` is the exact fp16 fuse re-quantised at `export.fuse_bits`,
     8 by default, and `fused-fp16/` is kept because Ollama and GGUF want it.
+
+    Both are written to a local staging directory and moved into place, so a
+    `fused/` that is a symlink to an external drive gets its files without the
+    GPU ever reading from that drive.
     """
     require_mlx()
     fp16 = config.fused_fp16_dir
     if force or not (fp16 / "config.json").exists():
         if not (config.adapter_dir / "adapters.safetensors").exists():
             raise DragonError(f"no adapter at {config.adapter_dir}. Train one first.")
+        staging = _staging(config, "fused-fp16")
+        shutil.rmtree(staging, ignore_errors=True)
         args = module("mlx_lm.fuse") + [
             "--model",
             config.base_model,
             "--adapter-path",
             str(config.adapter_dir),
             "--save-path",
-            str(fp16),
+            str(staging),
             "--dequantize",
         ]
         if run(args, cwd=config.root) != 0:
             raise DragonError("mlx_lm.fuse failed")
+        _install(staging, fp16)
     if dequantize:
         return fp16
 
@@ -153,19 +182,42 @@ def fuse(config: Config, *, dequantize: bool = False, force: bool = False) -> Pa
     if (target / "config.json").exists() and not force:
         print(f"{target} exists; --force to rebuild")
         return target
+    # The quantiser reads fp16 through the GPU, so read a local copy if fp16
+    # lives on another volume, and write to a fresh path: mlx_lm.convert
+    # refuses a directory that already exists.
+    source = fp16
+    local_copy = None
+    if fp16.is_symlink() or not _same_volume(fp16, config.root):
+        local_copy = _staging(config, "fused-fp16-copy")
+        shutil.rmtree(local_copy, ignore_errors=True)
+        shutil.copytree(fp16, local_copy)
+        source = local_copy
+    staging = _staging(config, "fused")
+    shutil.rmtree(staging, ignore_errors=True)
     args = module("mlx_lm.convert") + [
         "--hf-path",
-        str(fp16),
+        str(source),
         "--mlx-path",
-        str(target),
+        str(staging),
         "-q",
         "--q-bits",
         str(bits),
     ]
-    if run(args, cwd=config.root) != 0:
+    code = run(args, cwd=config.root)
+    if local_copy:
+        shutil.rmtree(local_copy, ignore_errors=True)
+    if code != 0:
         raise DragonError("mlx_lm.convert failed")
+    _install(staging, target)
     apply_default_prompt(config, target)
     return target
+
+
+def _same_volume(a: Path, b: Path) -> bool:
+    try:
+        return os.stat(a).st_dev == os.stat(b).st_dev
+    except OSError:
+        return True
 
 
 def apply_default_prompt(config: Config, model_dir: Path) -> int:

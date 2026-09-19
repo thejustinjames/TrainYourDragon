@@ -65,6 +65,14 @@ the thing to version, so they stay in the project.
 Unload the model from LM Studio and stop `dragon serve` first; a model that is
 loaded has its files open.
 
+One thing not to do: GPU work against the drive. Fusing *to* a USB volume is
+only slow, but quantising *from* one died twice with a Metal GPU timeout, the
+GPU stalling on page faults from a 30 MB/s device. `dragon fuse` therefore
+writes to a staging directory under `.dragon/` and moves the finished model
+through the symlink afterwards, and copies the fp16 locally before quantising
+if it lives on another volume. `mlx_lm.convert` also refuses to write into a
+directory that already exists, which the staging path sidesteps.
+
 ## The endpoint
 
 ```bash
