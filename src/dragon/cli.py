@@ -368,6 +368,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
         fused_repo=args.fused_repo,
         gguf_repo=args.gguf_repo,
         owner=args.owner,
+        tag=args.tag,
     )
     return 0
 
@@ -532,6 +533,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--fused-repo", help="fused repository id")
     s.add_argument("--gguf-repo", help="GGUF repository id (default: <user>/<model name>-gguf)")
     s.add_argument("--owner", help="publish under an organisation instead of your account")
+    s.add_argument("--tag", help="tag the new head of each repository, e.g. v2")
     s.set_defaults(func=cmd_publish, private=True)
 
     s = sub.add_parser("curve", help="the validation loss curve from train.log")

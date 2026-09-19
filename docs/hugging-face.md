@@ -139,11 +139,22 @@ See [serving](serving.md) for making the GGUF.
 
 ## Versioning a retrain
 
-Each publish is a new commit, so earlier versions stay reachable:
+Each publish is a new commit, so earlier versions stay reachable by sha. Give
+the ones worth keeping a name:
+
+```bash
+dragon publish --fused --tag v2
+```
+
+tags the new head of each repository it touches, and from then on
 
 ```python
-snapshot_download("you/myvoice-7b-lora", revision="<sha>")
+snapshot_download("you/myvoice-7b-lora", revision="v2")
+model, tok = load("you/myvoice-7b-mlx-8bit", revision="v2")
 ```
+
+fetch that version whatever has been pushed since. Tags are cheap; a run that
+went into use deserves one.
 
 Publish the adapter after every run worth keeping — it is 50 MB — and the fused
 model only when you actually need it somewhere. Note which checkpoint you

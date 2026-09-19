@@ -24,6 +24,8 @@ All notable changes to this project are recorded here. The format follows
 
 ### Added
 
+- `dragon publish --tag v2` tags the new head of each repository it publishes,
+  so a version can be fetched by name rather than by commit sha.
 - `dragon fuse` stages GPU output locally and moves it through the symlink, so
   models kept on an external drive are never read by the GPU from that drive.
 - Documentation for keeping fused models on an external drive behind symlinks,

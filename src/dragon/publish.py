@@ -75,6 +75,7 @@ def publish(
     )
     url = f"https://huggingface.co/{repo}"
     print(f"adapter → {url} ({'private' if private else 'PUBLIC'})")
+    tagged(repo)
     urls.append(url)
 
     if fused:
@@ -94,6 +95,7 @@ def publish(
         )
         url = f"https://huggingface.co/{repo}"
         print(f"fused → {url} ({'private' if private else 'PUBLIC'})")
+        tagged(repo)
         urls.append(url)
 
     if gguf:
@@ -117,6 +119,7 @@ def publish(
         url = f"https://huggingface.co/{repo}"
         print(f"gguf \u2192 {url} ({'private' if private else 'PUBLIC'})")
         print(f"  ollama run hf.co/{repo}")
+        tagged(repo)
         urls.append(url)
 
     return urls
