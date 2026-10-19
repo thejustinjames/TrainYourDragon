@@ -33,6 +33,9 @@ _TRAIN_LINE = re.compile(
 )
 _SAVED = re.compile(r"Iter (\d+): Saved adapter weights")
 _TRAINABLE = re.compile(r"Trainable parameters: ([\d.]+)% \(([\d.]+M)/([\d.]+M)\)")
+_VAL_TOOK = re.compile(r"Val took ([\d.]+)s")
+# The least quiet a log is allowed before it counts as stalled. A slow run is
+# allowed more: see _quiet_allowance.
 STALE_AFTER_SECONDS = 180
 
 
@@ -158,7 +161,7 @@ def snapshot(paths: Paths) -> Snapshot:
         stage = "loading"
     elif age > STOPPED_AFTER_SECONDS:
         stage = "stopped"
-    elif age > STALE_AFTER_SECONDS:
+    elif age > _quiet_allowance(train, text):
         stage = "stalled"
     else:
         stage = "training"
@@ -216,6 +219,22 @@ _NOISE = re.compile(r"^(Calculating loss|Fetching \d+ files)|\d+%\|")
 def _worth_showing(line: str) -> bool:
     """Drop tqdm progress bars, which dominate a raw tail and say nothing."""
     return bool(line.strip()) and not _NOISE.search(line)
+
+
+def _quiet_allowance(train: list[dict[str, float]], text: str) -> float:
+    """How long the log may go quiet before the run counts as stalled.
+
+    A fixed few minutes is wrong for a slow run: at 0.09 it/s, twenty steps
+    between reports take nearly four, and an evaluation adds another two. So
+    allow half as much again as the run's own gap between reports, plus its
+    longest evaluation, and never less than STALE_AFTER_SECONDS.
+    """
+    gap = 0.0
+    if len(train) >= 2 and train[-1]["it_per_sec"] > 0:
+        steps = train[-1]["iteration"] - train[-2]["iteration"]
+        gap = steps / train[-1]["it_per_sec"]
+    evaluation = max((float(s) for s in _VAL_TOOK.findall(text)), default=0.0)
+    return max(STALE_AFTER_SECONDS, 1.5 * (gap + evaluation))
 
 
 def _train_point(m: re.Match) -> dict[str, float]:

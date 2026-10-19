@@ -58,6 +58,13 @@ All notable changes to this project are recorded here. The format follows
   hard-coded to Apache 2.0, which is wrong for several base model families.
 - `dragon serve` warns when bound to anything other than the loopback address.
 
+### Fixed
+
+- The studio no longer calls a slow run stalled between reports. A fixed three
+  minutes of quiet was shorter than the gap between log lines at 0.09 it/s;
+  the allowance is now half as much again as the run's own gap plus its
+  longest evaluation, and never less than three minutes.
+
 ## [0.1.0] — 2026-09-18
 
 First public release: the tooling behind a private voice model, generalised so

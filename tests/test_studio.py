@@ -78,10 +78,40 @@ def test_stages(tmp_path):
 
 def test_a_quiet_log_is_reported_as_stalled(tmp_path, monkeypatch):
     paths = project(tmp_path)
-    monkeypatch.setattr(studio, "STALE_AFTER_SECONDS", -1)
+    monkeypatch.setattr(studio, "_quiet_allowance", lambda *_: -1)
     s = snapshot(paths)
     assert s.stage == "stalled" and not s.live
     assert any("dozing" in line for line in s.reading)
+
+
+SLOW = """Trainable parameters: 0.151% (11.534M/7615.617M)
+Iter 1: Val loss 4.181, Val took 45.124s
+Iter 900: Val loss 1.582, Val took 106.453s
+Iter 960: Train loss 1.297, Learning Rate 1.000e-05, It/sec 0.088, Tokens/sec 68.056, Trained Tokens 760436, Peak mem 13.178 GB
+Iter 980: Train loss 1.369, Learning Rate 1.000e-05, It/sec 0.088, Tokens/sec 71.091, Trained Tokens 776523, Peak mem 13.178 GB
+"""
+
+
+def _quiet_for(paths, seconds):
+    import os
+    import time
+
+    then = time.time() - seconds
+    os.utime(paths.log, (then, then))
+
+
+def test_a_slow_run_between_reports_is_not_stalled(tmp_path):
+    # 20 steps at 0.088 it/s is 227 s between lines: four minutes of quiet is normal.
+    paths = project(tmp_path, log=SLOW, iters=1600)
+    _quiet_for(paths, 240)
+    assert snapshot(paths).stage == "training"
+
+
+def test_a_slow_run_quiet_well_past_its_own_pace_is_stalled(tmp_path):
+    # Allowed 1.5 × (227 + 106) ≈ 500 s; fifteen minutes is past it.
+    paths = project(tmp_path, log=SLOW, iters=1600)
+    _quiet_for(paths, 900)
+    assert snapshot(paths).stage == "stalled"
 
 
 def test_without_stats_there_is_no_pass_count_and_no_crash(tmp_path):
