@@ -16,6 +16,7 @@ dragon publish    adapter (and optionally the model) to Hugging Face
 dragon curve      the validation loss curve, read from train.log
 dragon promote    make a saved checkpoint the live adapter
 dragon compare    the same brief through the base model and the adapter
+dragon pick       two drafts side by side; your verdict is preference data
 """
 
 from __future__ import annotations
@@ -430,6 +431,62 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pick(args: argparse.Namespace) -> int:
+    import os
+
+    from dragon.pick import DEFAULT_ENDPOINT, DEFAULT_MODEL, Endpoint, pairs, read, serve
+
+    # Works without a config, so it can sit in front of any endpoint; with one,
+    # it sends the voice prompt and reads `pick:` for the endpoint.
+    try:
+        config = _config(args)
+        root, system, settings = config.root, config.system_prompt, config.raw.get("pick") or {}
+    except DragonError:
+        root, system, settings = Path.cwd(), None, {}
+    if args.system:
+        system = (
+            Path(args.system[1:]).read_text().strip()
+            if args.system.startswith("@")
+            else args.system
+        )
+
+    out = Path(args.out or settings.get("out") or root / "preferences.jsonl").expanduser().resolve()
+    if args.pairs:
+        made = pairs(read(out))
+        target = Path(args.pairs)
+        target.write_text("".join(json.dumps(p, ensure_ascii=False) + "\n" for p in made))
+        print(f"{len(made)} pairs from {len(read(out))} verdicts → {target}")
+        return 0
+
+    key_file = args.api_key_file or settings.get("api_key_file")
+    api_key = os.environ.get("DRAGON_PICK_API_KEY")
+    if key_file:
+        path = Path(os.path.expanduser(key_file))
+        if not path.exists():
+            raise DragonError(f"no API key file at {path}")
+        api_key = path.read_text().strip()
+    cacert = args.cacert or settings.get("cacert")
+    endpoint = Endpoint(
+        url=args.endpoint or settings.get("endpoint") or DEFAULT_ENDPOINT,
+        model=args.model or settings.get("model") or DEFAULT_MODEL,
+        api_key=api_key,
+        cacert=os.path.expanduser(cacert) if cacert else None,
+    )
+    if_busy = args.if_busy or ("ask" if sys.stdin.isatty() else "next")
+    serve(
+        endpoint,
+        system=system,
+        out=out,
+        temperature=args.temp if args.temp is not None else float(settings.get("temperature", 0.7)),
+        max_tokens=args.max_tokens,
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_open,
+        if_busy=if_busy,
+    )
+    return 0
+
+
 def cmd_card(args: argparse.Namespace) -> int:
     from dragon.cards import model_card
 
@@ -553,6 +610,26 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-tokens", type=int, default=600)
     s.add_argument("--temp", type=float, default=0.7)
     s.set_defaults(func=cmd_compare)
+
+    s = sub.add_parser("pick", help="two drafts side by side; your verdict is preference data")
+    s.add_argument("--endpoint", help="OpenAI-compatible base URL (default: dragon serve's)")
+    s.add_argument("--model", help="model id at the endpoint (default: default_model)")
+    s.add_argument("--api-key-file", help="a file holding a bearer token for the endpoint")
+    s.add_argument("--cacert", help="a CA certificate for an endpoint with its own")
+    s.add_argument("--system", help="the system prompt, or @FILE (default: the config's voice)")
+    s.add_argument("--temp", type=float, help="sampling temperature (default 0.7)")
+    s.add_argument("--max-tokens", type=int, default=700)
+    s.add_argument("--out", help="where verdicts go (default: preferences.jsonl in the project)")
+    s.add_argument("--pairs", metavar="FILE", help="write chosen/rejected pairs and exit")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8791)
+    s.add_argument("--no-open", action="store_true", help="do not open a browser")
+    s.add_argument(
+        "--if-busy",
+        choices=["ask", "next", "kill", "fail"],
+        help="what to do if the port is taken (default: ask at a terminal, next otherwise)",
+    )
+    s.set_defaults(func=cmd_pick)
 
     s = sub.add_parser("card", help="print the model card that publish would upload")
     s.add_argument("--flavour", choices=["adapter", "fused", "gguf"], default="adapter")

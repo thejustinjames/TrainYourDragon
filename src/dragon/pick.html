@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pick the better draft · Agencie.io Labs</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='48' cy='51' r='25' stroke='%232f6bff' stroke-width='18' fill='none'/%3E%3Crect x='64' y='17' width='18' height='68' rx='1.5' fill='%232f6bff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Familjen+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap">
+<style>
+  /* Agencie.io Labs tokens, as in the studio. Light by default here: this page
+     is for reading prose, and dark follows the OS preference. */
+  :root {
+    --blue: #2f6bff; --coral: #ff5b6e;
+    --bg: #fafafb; --panel: #fff; --line: #e6e8ef; --ink: #0b0c11; --dim: #767b88;
+    --accent: #2f6bff; --good: #1f9d63; --warn: #d9a300;
+    --foot-bg: #0b0c11; --foot-ink: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b0c11; --panel: #14161d; --line: #23262f; --ink: #f2f3f8; --dim: #8e93a1;
+            --accent: #5b8cff; --good: #34d399; --warn: #ffd23d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.55 "Familjen Grotesk", -apple-system, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+         display: flex; flex-direction: column; min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 18px; padding: 16px 22px 10px; flex-wrap: wrap;
+           border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: .55em; font-family: "Syne", sans-serif; font-weight: 800;
+           font-size: 19px; letter-spacing: -.02em; color: var(--ink); text-decoration: none; }
+  .brand svg { width: 24px; height: 24px; flex: 0 0 auto; color: var(--blue); }
+  .brand sup { font-size: .5em; vertical-align: super; font-weight: 600; opacity: .55; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 500; color: var(--dim); padding-left: 18px;
+              border-left: 1px solid var(--line); }
+  header .meta { color: var(--dim); font-size: 13px; }
+  header .count { margin-left: auto; font-size: 13px; padding: 2px 10px; border-radius: 999px;
+                  border: 1px solid var(--line); color: var(--dim); }
+  main { flex: 1; display: grid; gap: 14px; padding: 14px 22px 30px; grid-template-columns: 1fr 1fr;
+         max-width: 1400px; width: 100%; margin: 0 auto; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+            min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  h2 { font-family: "Space Mono", monospace; font-size: 11px; text-transform: uppercase; letter-spacing: .14em;
+       color: var(--dim); margin: 0 0 10px; font-weight: 700; display: flex; justify-content: space-between;
+       gap: 4px 12px; flex-wrap: wrap; }
+  h2 small { font-weight: 400; letter-spacing: .04em; text-transform: none; }
+  textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+             border-radius: 8px; padding: 10px 12px; resize: vertical; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #prompt { min-height: 110px; }
+  #edit { min-height: 220px; }
+  .draft { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 160px; }
+  .draft.waiting { color: var(--dim); font-style: italic; }
+  .draft.err { color: var(--coral); }
+  section.chosen { border-color: var(--good); box-shadow: 0 0 0 1px var(--good) inset; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  button { font: inherit; font-size: 14px; border-radius: 999px; padding: 7px 16px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  button kbd { font-family: "Space Mono", monospace; font-size: 11px; color: var(--dim); margin-left: 6px; }
+  button.primary kbd { color: rgba(255,255,255,.7); }
+  .hint { color: var(--dim); font-size: 13px; margin: 8px 0 0; }
+  .status { color: var(--dim); font-size: 13px; }
+  .status.err { color: var(--coral); }
+  [hidden] { display: none !important; }
+  footer { background: var(--foot-bg); color: var(--foot-ink); padding: 26px 22px 22px; margin-top: 10px; }
+  footer .foot-top { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  footer .brand { color: #fff; font-size: 1.25rem; }
+  footer .brand svg { color: #fff; }
+  footer .tag { font-family: "Space Mono", monospace; font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+                color: rgba(255,255,255,.5); margin-top: .5rem; }
+  footer .links { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13.5px; align-self: center; }
+  footer .links a { color: rgba(255,255,255,.75); text-decoration: none; }
+  footer .links a:hover { color: #fff; }
+  footer .bot { margin-top: 1.6rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,.12); display: flex;
+                flex-wrap: wrap; justify-content: space-between; gap: .8rem; font-size: 12px; color: rgba(255,255,255,.45);
+                font-family: "Space Mono", monospace; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; padding: 12px 16px 24px; }
+    header { padding: 14px 16px 10px; }
+    header h1 { border-left: 0; padding-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="https://agencie.io" target="_blank" rel="noopener" aria-label="Agencie.io Labs">
+    <svg viewBox="0 0 100 100" fill="none" aria-hidden="true"><circle cx="48" cy="51" r="25" stroke="currentColor" stroke-width="18"></circle><rect x="64" y="17" width="18" height="68" rx="1.5" fill="currentColor"></rect></svg>
+    Agencie.io<sup aria-hidden="true">®</sup> Labs
+  </a>
+  <h1>Pick the better draft</h1>
+  <span class="meta" id="model">connecting</span>
+  <span class="count" id="count">–</span>
+</header>
+<main>
+  <section class="wide">
+    <h2>Prompt <small>Two drafts from the same prompt, different seeds</small></h2>
+    <textarea id="prompt" placeholder="A brief, or dictated notes: what the piece is, the points it has to make, the title or section."></textarea>
+    <div class="row">
+      <button class="primary" id="go">Two drafts<kbd>⌘↵</kbd></button>
+      <span class="status" id="status"></span>
+    </div>
+  </section>
+
+  <section id="boxA">
+    <h2>Draft A <small id="metaA"></small></h2>
+    <div class="draft waiting" id="draftA">Nothing yet.</div>
+  </section>
+  <section id="boxB">
+    <h2>Draft B <small id="metaB"></small></h2>
+    <div class="draft waiting" id="draftB">Nothing yet.</div>
+  </section>
+
+  <section class="wide" id="verdict" hidden>
+    <h2>Which is better?</h2>
+    <div class="row">
+      <button data-choice="a">A is better<kbd>1</kbd></button>
+      <button data-choice="b">B is better<kbd>2</kbd></button>
+      <button data-choice="same">About the same<kbd>3</kbd></button>
+      <button data-choice="both_poor">Both poor<kbd>4</kbd></button>
+    </div>
+    <p class="hint">"About the same" is saved but makes no training pair: a forced choice between two
+    equal drafts teaches noise. So does "Both poor", unless you write it as it should be below.</p>
+  </section>
+
+  <section class="wide" id="editor" hidden>
+    <h2>Your version <small id="editnote"></small></h2>
+    <textarea id="edit"></textarea>
+    <div class="row">
+      <button class="primary" id="save">Save<kbd>⌘↵</kbd></button>
+      <button id="cancel">Back</button>
+      <span class="status" id="savestatus"></span>
+    </div>
+    <p class="hint">Correct it and save, or save it untouched. An edit is the strongest signal there is:
+    your version is preferred over both drafts.</p>
+  </section>
+</main>
+<footer>
+  <div class="foot-top">
+    <div>
+      <div class="brand"><svg viewBox="0 0 100 100" fill="none" aria-hidden="true"><circle cx="48" cy="51" r="25" stroke="currentColor" stroke-width="18"></circle><rect x="64" y="17" width="18" height="68" rx="1.5" fill="currentColor"></rect></svg>Agencie.io<sup aria-hidden="true">®</sup> Labs</div>
+      <div class="tag">The Art &amp; Science of the Possible<span aria-hidden="true">®</span></div>
+    </div>
+    <nav class="links" aria-label="Footer">
+      <a href="https://github.com/thejustinjames/TrainYourDragon" target="_blank" rel="noopener">TrainYourDragon</a>
+      <a href="https://github.com/thejustinjames/TrainYourDragon/blob/main/docs/pick.md" target="_blank" rel="noopener">How this is used</a>
+      <a href="https://agencie.io" target="_blank" rel="noopener">Agencie.io</a>
+      <a href="https://justinjames.agencie.io" target="_blank" rel="noopener">Justin James</a>
+    </nav>
+  </div>
+  <div class="bot">
+    <span>© 2026 Agencie.io Labs · Agencio APAC Pte Ltd, Singapore</span>
+    <span id="where">Verdicts are saved on this machine</span>
+  </div>
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let round = null;   // {prompt, a, b, seeds}
+let choice = null;
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                      body: JSON.stringify(body)} : {});
+  const data = await r.json().catch(() => ({error: `HTTP ${r.status}`}));
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function showInfo(i) {
+  $('model').textContent = i.model + (i.system ? '' : ' · no system prompt');
+  const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+  $('count').textContent = `${i.count} saved · ${n(i.pairs, 'training pair', 'training pairs')}`;
+  $('where').textContent = `Saved to ${i.out} · temperature ${i.temperature}`;
+}
+
+function setDraft(slot, text, cls, meta = '') {
+  const el = $('draft' + slot);
+  el.textContent = text; el.className = 'draft' + (cls ? ' ' + cls : '');
+  $('meta' + slot).textContent = meta;
+}
+
+async function draft(slot, prompt) {
+  setDraft(slot, 'Writing…', 'waiting');
+  const d = await api('/api/draft', {prompt});
+  setDraft(slot, d.text, '', `${d.seconds}s · seed ${d.seed}`);
+  return d;
+}
+
+async function go() {
+  const prompt = $('prompt').value.trim();
+  if (!prompt) { $('prompt').focus(); return; }
+  round = null; choice = null;
+  $('verdict').hidden = true; $('editor').hidden = true;
+  $('boxA').classList.remove('chosen'); $('boxB').classList.remove('chosen');
+  $('go').disabled = true; $('status').className = 'status'; $('status').textContent = 'Asking for two drafts…';
+  const started = Date.now();
+  const results = await Promise.allSettled([draft('A', prompt), draft('B', prompt)]);
+  $('go').disabled = false;
+  const failed = results.find(r => r.status === 'rejected');
+  if (failed) {
+    results.forEach((r, i) => { if (r.status === 'rejected') setDraft('AB'[i], r.reason.message, 'err'); });
+    $('status').className = 'status err'; $('status').textContent = 'The model did not answer. Is the endpoint running?';
+    return;
+  }
+  const [a, b] = results.map(r => r.value);
+  round = {prompt, a: a.text, b: b.text, seeds: [a.seed, b.seed]};
+  $('status').textContent = `Both drafts in ${Math.round((Date.now() - started) / 1000)}s.`;
+  $('verdict').hidden = false;
+}
+
+async function save(edited) {
+  const body = {...round, choice, edited: edited || null};
+  $('save').disabled = true;
+  try {
+    showInfo(await api('/api/choice', body));
+    $('editor').hidden = true; $('verdict').hidden = true;
+    $('status').className = 'status';
+    $('status').textContent = 'Saved. Change the prompt or ask again for two more.';
+    round = null;
+  } catch (e) {
+    $('savestatus').className = 'status err'; $('savestatus').textContent = e.message;
+  } finally { $('save').disabled = false; }
+}
+
+function pick(c) {
+  if (!round) return;
+  choice = c;
+  $('boxA').classList.toggle('chosen', c === 'a');
+  $('boxB').classList.toggle('chosen', c === 'b');
+  if (c === 'same') { save(null); return; }
+  const base = c === 'b' ? round.b : round.a;
+  $('edit').value = c === 'both_poor' ? '' : base;
+  $('editnote').textContent = c === 'both_poor'
+    ? 'Write it as it should be, or save without'
+    : `Draft ${c.toUpperCase()}, as chosen`;
+  $('savestatus').textContent = '';
+  $('editor').hidden = false; $('edit').focus();
+}
+
+function saveFromEditor() {
+  const text = $('edit').value.trim();
+  const original = choice === 'b' ? round.b : choice === 'a' ? round.a : '';
+  save(text && text !== original.trim() ? text : null);
+}
+
+$('go').onclick = go;
+$('save').onclick = saveFromEditor;
+$('cancel').onclick = () => { $('editor').hidden = true; choice = null;
+  $('boxA').classList.remove('chosen'); $('boxB').classList.remove('chosen'); };
+document.querySelectorAll('[data-choice]').forEach(b => b.onclick = () => pick(b.dataset.choice));
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    if (!$('editor').hidden) saveFromEditor(); else go();
+    return;
+  }
+  const typing = ['TEXTAREA', 'INPUT'].includes(document.activeElement.tagName);
+  if (!typing && !$('verdict').hidden && '1234'.includes(e.key) && e.key.length === 1) {
+    pick(['a', 'b', 'same', 'both_poor'][Number(e.key) - 1]);
+  }
+});
+api('/api/info').then(showInfo).catch(() => { $('model').textContent = 'picker not reachable'; });
+</script>
+</body>
+</html>

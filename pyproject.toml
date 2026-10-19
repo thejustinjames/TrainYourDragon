@@ -44,7 +44,7 @@ dragon = "dragon.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-dragon = ["studio.html"]
+dragon = ["studio.html", "pick.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

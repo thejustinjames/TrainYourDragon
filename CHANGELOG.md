@@ -57,6 +57,12 @@ All notable changes to this project are recorded here. The format follows
 - `model.license` in `config.yaml`, carried onto the model card. It was
   hard-coded to Apache 2.0, which is wrong for several base model families.
 - `dragon serve` warns when bound to anything other than the loopback address.
+- `dragon pick`: two drafts from the same prompt, side by side, and your
+  verdict saved to `preferences.jsonl` — better, about the same, or both poor,
+  with the winner editable before saving. `dragon pick --pairs` writes the
+  chosen/rejected pairs preference tuning reads; an edit beats both drafts, and
+  ties make no pairs. Any OpenAI-compatible endpoint, with a bearer token and
+  a CA certificate for a gateway (`pick:` in `config.yaml`).
 
 ### Fixed
 
