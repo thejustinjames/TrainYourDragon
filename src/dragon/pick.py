@@ -131,6 +131,8 @@ def pairs(records: list[dict[str, Any]]) -> list[dict[str, str]]:
     and the stronger signal. Both poor with an edit: the edit beats both. Both
     poor without one, or about the same: nothing, because neither draft is the
     one you wanted and a forced choice between two bad drafts teaches noise.
+    Two identical drafts (a memorised answer) make no pair from a pick, and
+    one pair, not two, from an edit.
     """
     out: list[dict[str, str]] = []
     for r in records:
@@ -140,9 +142,11 @@ def pairs(records: list[dict[str, Any]]) -> list[dict[str, str]]:
         if edited:
             if choice == "same":
                 continue
-            for rejected in (a, b):
-                if rejected.strip() and rejected.strip() != edited:
+            for rejected in dict.fromkeys((a.strip(), b.strip())):
+                if rejected and rejected != edited:
                     out.append({**base, "chosen": edited, "rejected": rejected})
+        elif a.strip() == b.strip():
+            continue
         elif choice == "a":
             out.append({**base, "chosen": a, "rejected": b})
         elif choice == "b":

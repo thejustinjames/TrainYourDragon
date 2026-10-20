@@ -54,6 +54,12 @@ def test_an_edit_identical_to_a_draft_is_not_paired_against_itself():
     assert [(p["chosen"], p["rejected"]) for p in made] == [("Draft one.", "Draft two.")]
 
 
+def test_identical_drafts_make_no_pair_from_a_pick_and_one_from_an_edit():
+    assert pairs([verdict("a", a="Same.", b="Same.\n")]) == []
+    made = pairs([verdict("a", edited="Better.", a="Same.", b="Same.")])
+    assert [(p["chosen"], p["rejected"]) for p in made] == [("Better.", "Same.")]
+
+
 # ----------------------------------------------------------------- records
 def test_records_append_and_count(tmp_path):
     out = tmp_path / "preferences.jsonl"
