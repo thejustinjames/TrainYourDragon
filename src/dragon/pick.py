@@ -12,8 +12,11 @@ the invented figure, the closing line that sounds right and says nothing.
 
 The model is any OpenAI-compatible endpoint: `dragon serve` on this machine by
 default, or Ollama elsewhere behind a gateway with a bearer token and its own
-certificate. One small server from the standard library, one page, nothing
-leaves the machine except the prompt to the endpoint you name.
+certificate. Two endpoints make it a blind comparison: A and B are shuffled
+each round, and you are told which was which after you have chosen. With an
+index (`dragon index`), each prompt goes with the passages of your writing it
+matches. One small server from the standard library, one page, nothing leaves
+the machine except the prompt to the endpoints you name.
 """
 
 from __future__ import annotations
@@ -25,14 +28,18 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dragon.errors import DragonError
+
+if TYPE_CHECKING:
+    from dragon.retrieve import Retriever
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:8787/v1"  # dragon serve
 DEFAULT_MODEL = "default_model"  # what mlx_lm.server calls the model it was started with
@@ -72,27 +79,41 @@ def complete(
         "max_tokens": max_tokens,
         "stream": False,
     }
+    reply = post_json(endpoint, "/chat/completions", body)
+    try:
+        message = reply["choices"][0]["message"]
+        text = (message.get("content") or "").strip()
+    except (KeyError, IndexError, TypeError, AttributeError) as exc:
+        raise DragonError(f"{endpoint.url} sent something that is not a chat completion") from exc
+    if not text and message.get("reasoning"):
+        # A reasoning model (gpt-oss, Qwen3) thinks inside the same token budget.
+        raise DragonError(
+            f"{endpoint.model} spent all {max_tokens} tokens thinking; raise --max-tokens"
+        )
+    return text
+
+
+def post_json(endpoint: Endpoint, path: str, body: dict[str, Any]) -> Any:
+    """POST to the endpoint and read JSON back. Errors are DragonError, without the key."""
     headers = {"Content-Type": "application/json"}
     if endpoint.api_key:
         headers["Authorization"] = f"Bearer {endpoint.api_key}"
     request = urllib.request.Request(
-        endpoint.url.rstrip("/") + "/chat/completions",
+        endpoint.url.rstrip("/") + path,
         data=json.dumps(body).encode("utf-8"),
         headers=headers,
     )
     context = ssl.create_default_context(cafile=endpoint.cacert) if endpoint.cacert else None
     try:
         with urllib.request.urlopen(request, timeout=endpoint.timeout, context=context) as r:
-            reply = json.load(r)
+            return json.load(r)
     except urllib.error.HTTPError as exc:
         raise DragonError(f"{endpoint.url} answered {exc.code} {exc.reason}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         reason = getattr(exc, "reason", exc)
         raise DragonError(f"could not reach {endpoint.url}: {reason}") from exc
-    try:
-        return reply["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, TypeError) as exc:
-        raise DragonError(f"{endpoint.url} sent something that is not a chat completion") from exc
+    except json.JSONDecodeError as exc:
+        raise DragonError(f"{endpoint.url} did not answer in JSON") from exc
 
 
 # ------------------------------------------------------------------ records
@@ -138,7 +159,8 @@ def pairs(records: list[dict[str, Any]]) -> list[dict[str, str]]:
     for r in records:
         a, b, choice = r.get("a", ""), r.get("b", ""), r.get("choice")
         edited = (r.get("edited") or "").strip()
-        base = {"system": r.get("system") or "", "prompt": r.get("prompt", "")}
+        # With retrieval the model saw the passages too, so they are part of the prompt.
+        base = {"system": r.get("system") or "", "prompt": r.get("brief") or r.get("prompt", "")}
         if edited:
             if choice == "same":
                 continue
@@ -169,21 +191,57 @@ def make_server(
     host: str = "127.0.0.1",
     port: int = 8791,
     complete_fn=complete,
+    endpoint_b: Endpoint | None = None,
+    retriever: Retriever | None = None,
 ) -> ThreadingHTTPServer:
-    """The picker's HTTP server, not yet running. `serve()` runs it; tests poke it."""
+    """The picker's HTTP server, not yet running. `serve()` runs it; tests poke it.
+
+    With `endpoint_b`, the two drafts come from two models, and which is A and
+    which is B is shuffled each round and only revealed once you have chosen.
+    With a `retriever`, each prompt goes with the passages of your writing that
+    match it, the same passages for both drafts.
+    """
+    from dragon.retrieve import brief  # here, not at the top: retrieve imports this module
+
     html = page().encode("utf-8")
     lock = threading.Lock()
+    rounds: dict[str, dict[str, Any]] = {}
 
     def info() -> dict[str, Any]:
         records = read(out)
+        model = (
+            f"blind: {endpoint.describe()} against {endpoint_b.describe()}"
+            if endpoint_b
+            else endpoint.describe()
+        )
         return {
-            "model": endpoint.describe(),
+            "model": model,
             "system": bool(system),
+            "retrieval": retriever.describe() if retriever else None,
             "out": str(out),
             "count": len(records),
             "pairs": len(pairs(records)),
             "temperature": temperature,
         }
+
+    def new_round(prompt: str) -> dict[str, Any]:
+        hits = retriever.find(prompt) if retriever else []
+        slots = {"A": endpoint, "B": endpoint_b or endpoint}
+        if endpoint_b and random.random() < 0.5:
+            slots = {"A": slots["B"], "B": slots["A"]}
+        state = {
+            "prompt": prompt,
+            "brief": brief(prompt, hits) if retriever else prompt,
+            "system": retriever.system(system) if retriever else system,
+            "sources": [h.passage.id for h in hits],
+            "slots": slots,
+        }
+        rid = uuid.uuid4().hex[:12]
+        with lock:
+            rounds[rid] = state
+            while len(rounds) > 64:  # a page left open all day should not grow forever
+                rounds.pop(next(iter(rounds)))
+        return {"round": rid, "sources": [h.passage.where for h in hits], "blind": bool(endpoint_b)}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802 (http.server's name)
@@ -202,27 +260,35 @@ def make_server(
                 self._json(400, {"error": "not JSON"})
                 return
             try:
-                if self.path == "/api/draft":
+                if self.path == "/api/round":
                     prompt = str(body.get("prompt") or "").strip()
+                    if not prompt:
+                        raise DragonError("nothing to write from")
+                    self._json(200, new_round(prompt))
+                elif self.path == "/api/draft":
+                    state = rounds.get(str(body.get("round") or ""))
+                    if state:
+                        ep = state["slots"].get(str(body.get("slot") or "A"), endpoint)
+                        voice, prompt = state["system"], state["brief"]
+                    else:  # a bare prompt, no round: one model, no retrieval
+                        ep, voice = endpoint, system
+                        prompt = str(body.get("prompt") or "").strip()
                     if not prompt:
                         raise DragonError("nothing to write from")
                     seed = random.randrange(1, 2**31)
                     started = time.time()
                     text = complete_fn(
-                        endpoint,
-                        system,
-                        prompt,
-                        temperature=temperature,
-                        seed=seed,
-                        max_tokens=max_tokens,
+                        ep, voice, prompt, temperature=temperature, seed=seed, max_tokens=max_tokens
                     )
                     self._json(
                         200, {"text": text, "seed": seed, "seconds": round(time.time() - started)}
                     )
                 elif self.path == "/api/choice":
+                    state = rounds.get(str(body.get("round") or "")) or {}
+                    slots = state.get("slots") or {"A": endpoint, "B": endpoint}
                     entry = {
                         "prompt": body.get("prompt"),
-                        "system": system or "",
+                        "system": state.get("system", system) or "",
                         "a": body.get("a"),
                         "b": body.get("b"),
                         "choice": body.get("choice"),
@@ -232,13 +298,22 @@ def make_server(
                         "endpoint": endpoint.url,
                         "temperature": temperature,
                     }
+                    if state.get("brief") and state["brief"] != body.get("prompt"):
+                        entry["brief"] = state["brief"]  # what the model saw
+                        entry["sources"] = state["sources"]
+                    if endpoint_b:
+                        entry["models"] = {"a": slots["A"].model, "b": slots["B"].model}
                     with lock:
                         record(out, entry)
-                    self._json(200, info())
+                    reply = info()
+                    if endpoint_b:
+                        reply["reveal"] = entry["models"]
+                    self._json(200, reply)
                 else:
                     self._send(404, "text/plain", b"not found")
             except DragonError as exc:
-                self._json(502 if self.path == "/api/draft" else 400, {"error": str(exc)})
+                code = 400 if self.path == "/api/choice" else 502
+                self._json(code, {"error": str(exc)})
 
         def _json(self, code: int, obj: Any) -> None:
             self._send(code, "application/json; charset=utf-8", json.dumps(obj).encode("utf-8"))
@@ -268,6 +343,8 @@ def serve(
     port: int = 8791,
     open_browser: bool = True,
     if_busy: str = "ask",
+    endpoint_b: Endpoint | None = None,
+    retriever: Retriever | None = None,
 ) -> None:
     from dragon.studio import choose_port
 
@@ -280,10 +357,16 @@ def serve(
         max_tokens=max_tokens,
         host=host,
         port=port,
+        endpoint_b=endpoint_b,
+        retriever=retriever,
     )
     url = f"http://{host}:{server.server_address[1]}/"
     print(f"pick: {url}")
     print(f"  model    {endpoint.describe()}")
+    if endpoint_b:
+        print(f"  against  {endpoint_b.describe()} (blind: A and B shuffled each round)")
+    if retriever:
+        print(f"  notes    {retriever.describe()}")
     print(f"  verdicts {out} ({len(read(out))} so far)")
     if not system:
         print("  no system prompt: without a config the voice prompt is not sent")

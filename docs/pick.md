@@ -45,7 +45,7 @@ Keys: `⌘↵` asks for two drafts and saves an edit; `1`–`4` give the verdict
 
 ## Pointing it at a model
 
-Any OpenAI-compatible endpoint. With a `config.yaml`, the voice prompt goes
+Any OpenAI-compatible endpoint, or two of them. With a `config.yaml`, the voice prompt goes
 with every request and `pick:` supplies the rest:
 
 ```yaml
@@ -71,6 +71,37 @@ Sample at the temperature you would actually use. Two drafts at 0.2 are nearly
 the same draft, and the verdict says little; at 0.7 they differ enough to
 choose between, and the faults you are trying to train out are the ones that
 appear at that temperature.
+
+## Two models, blind
+
+```yaml
+pick:
+  endpoint: http://127.0.0.1:8099/v1     # the adapter, as a GGUF
+  model: jjvoice
+  against:
+    endpoint: http://127.0.0.1:11434/v1  # a general model
+    model: gpt-oss:20b
+```
+
+or `--against MODEL` for another model at the same endpoint, and
+`--against-endpoint URL` for one elsewhere. Draft A and draft B then come from
+the two models. Which one is A is decided by a coin each round, and you are told
+after you have chosen. Each verdict records which model wrote which draft, so
+a tally of wins is a line of `jq` away.
+
+## With your own writing in front of it
+
+```bash
+dragon index
+dragon pick --retrieve
+```
+
+Each prompt goes with the passages of your writing it matches, the same
+passages for both drafts, and the page lists where they came from. The verdict
+saves the passages' ids and the full brief the model saw, and the training
+pairs use that brief as their prompt: a model tuned on them learns to write
+well from passages, which is the job it will be doing.
+[Answers from your own writing](retrieval.md) covers the index.
 
 ## Turning verdicts into training data
 

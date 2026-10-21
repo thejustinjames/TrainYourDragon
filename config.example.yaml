@@ -86,6 +86,11 @@ corpus:
   exclude:
     - a-piece-someone-else-wrote
 
+  # Other names a document goes by, so recall pairs ask under each and
+  # retrieval finds it by them: an acronym, an old name, a nickname.
+  # aliases:
+  #   lantern: ["the reading light", "LNTN"]
+
   # Slugs held back from training and used only to measure. At least one, or
   # `dragon test` has nothing to say. Three is better: one is thin evidence.
   holdout:
@@ -154,3 +159,28 @@ pick:
   # api_key_file: ~/.config/ollama-client/api-key
   # cacert: ~/.config/ollama-client/ollama.crt
   temperature: 0.7
+  # A blind comparison: draft B from another model, A and B shuffled each
+  # round and revealed after your verdict. A model name alone means the same
+  # endpoint; give an endpoint (and key) for one elsewhere.
+  # against:
+  #   endpoint: http://127.0.0.1:11434/v1
+  #   model: gpt-oss:20b
+  # Send each prompt with the passages of your writing it matches (`dragon index`).
+  # retrieve: true
+
+retrieval:
+  # `dragon index` cuts the corpus into passages and embeds them; `dragon ask`
+  # answers from them. Facts come from your writing at the moment of asking,
+  # which fine-tuning cannot promise. Any OpenAI-compatible /embeddings.
+  embed:
+    endpoint: http://127.0.0.1:11434/v1   # Ollama: `ollama pull bge-m3`
+    model: bge-m3
+  k: 6                 # passages a question
+  per_document: 2      # no more than this from any one document
+  # The model `dragon ask` writes with. The adapter (`dragon serve`) gives the
+  # voice; a larger general model is often better at writing from passages.
+  writer:
+    endpoint: http://127.0.0.1:8787/v1
+    model: default_model
+    temperature: 0.5
+    max_tokens: 2500   # a reasoning model thinks inside this budget

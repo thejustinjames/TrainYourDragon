@@ -63,6 +63,19 @@ All notable changes to this project are recorded here. The format follows
   chosen/rejected pairs preference tuning reads; an edit beats both drafts, and
   ties make no pairs. Any OpenAI-compatible endpoint, with a bearer token and
   a CA certificate for a gateway (`pick:` in `config.yaml`).
+- `dragon index` and `dragon ask`: retrieval over the corpus. Passages of
+  about 220 words, embedded by any OpenAI-compatible `/embeddings` (Ollama's
+  bge-m3 by default), ranked by the embedding, BM25 and document names
+  together, and handed to the writing model with an instruction to take its
+  facts from them. Re-indexing embeds only what changed.
+- `corpus.aliases`: other names a document goes by. Recall pairs ask under
+  each, and retrieval finds the document by them.
+- `dragon pick --against MODEL`: a blind comparison of two models, A and B
+  shuffled each round and revealed after the verdict. `--retrieve` gives both
+  drafts the same passages, and the training pairs carry the brief the model
+  saw.
+- A reasoning model that spends its whole token budget thinking is reported as
+  such, instead of returning an empty draft.
 
 ### Fixed
 

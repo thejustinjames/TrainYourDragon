@@ -17,6 +17,8 @@ dragon curve      the validation loss curve, read from train.log
 dragon promote    make a saved checkpoint the live adapter
 dragon compare    the same brief through the base model and the adapter
 dragon pick       two drafts side by side; your verdict is preference data
+dragon index      cut the corpus into passages and embed them, for retrieval
+dragon ask        an answer from your own writing, with the passages it used
 """
 
 from __future__ import annotations
@@ -41,6 +43,73 @@ def _corpus(config: Config):
     from dragon import corpus
 
     return corpus.load(config)
+
+
+def _endpoint(
+    settings: dict,
+    *,
+    url=None,
+    model=None,
+    key_file=None,
+    cacert=None,
+    default_url=None,
+    default_model=None,
+    env_key=None,
+):
+    """An Endpoint from flags, then a config section, then defaults. The key comes
+    from a file or an environment variable, never from the command line."""
+    import os
+
+    from dragon.pick import Endpoint
+
+    key_file = key_file or settings.get("api_key_file")
+    api_key = os.environ.get(env_key) if env_key else None
+    if key_file:
+        path = Path(os.path.expanduser(key_file))
+        if not path.exists():
+            raise DragonError(f"no API key file at {path}")
+        api_key = path.read_text().strip()
+    cacert = cacert or settings.get("cacert")
+    return Endpoint(
+        url=url or settings.get("endpoint") or default_url,
+        model=model or settings.get("model") or default_model,
+        api_key=api_key,
+        cacert=os.path.expanduser(cacert) if cacert else None,
+    )
+
+
+def _index_dir(config: Config) -> Path:
+    where = (config.raw.get("retrieval") or {}).get("index")
+    return (config.root / Path(where).expanduser()) if where else config.work_dir / "index"
+
+
+def _embed_endpoint(config: Config):
+    from dragon.retrieve import DEFAULT_EMBED_ENDPOINT, DEFAULT_EMBED_MODEL
+
+    settings = (config.raw.get("retrieval") or {}).get("embed") or {}
+    return _endpoint(
+        settings, default_url=DEFAULT_EMBED_ENDPOINT, default_model=DEFAULT_EMBED_MODEL
+    )
+
+
+def _retriever(config: Config, k: int | None = None):
+    from dragon.retrieve import INSTRUCTIONS, Index, Retriever, embedder
+
+    settings = config.raw.get("retrieval") or {}
+    index = Index.load(_index_dir(config))
+    endpoint = _embed_endpoint(config)
+    if index.meta.get("model") != endpoint.model:
+        raise DragonError(
+            f"the index was embedded with {index.meta.get('model')}, not {endpoint.model}; "
+            "run `dragon index` again"
+        )
+    return Retriever(
+        index,
+        embedder(endpoint),
+        k=k or int(settings.get("k", 6)),
+        per_document=int(settings.get("per_document", 2)),
+        instructions=(settings.get("instructions") or INSTRUCTIONS).strip(),
+    )
 
 
 # ----------------------------------------------------------------- commands
@@ -432,9 +501,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
 
 
 def cmd_pick(args: argparse.Namespace) -> int:
-    import os
-
-    from dragon.pick import DEFAULT_ENDPOINT, DEFAULT_MODEL, Endpoint, pairs, read, serve
+    from dragon.pick import DEFAULT_ENDPOINT, DEFAULT_MODEL, pairs, read, serve
 
     # Works without a config, so it can sit in front of any endpoint; with one,
     # it sends the voice prompt and reads `pick:` for the endpoint.
@@ -442,7 +509,7 @@ def cmd_pick(args: argparse.Namespace) -> int:
         config = _config(args)
         root, system, settings = config.root, config.system_prompt, config.raw.get("pick") or {}
     except DragonError:
-        root, system, settings = Path.cwd(), None, {}
+        config, root, system, settings = None, Path.cwd(), None, {}
     if args.system:
         system = (
             Path(args.system[1:]).read_text().strip()
@@ -458,20 +525,38 @@ def cmd_pick(args: argparse.Namespace) -> int:
         print(f"{len(made)} pairs from {len(read(out))} verdicts → {target}")
         return 0
 
-    key_file = args.api_key_file or settings.get("api_key_file")
-    api_key = os.environ.get("DRAGON_PICK_API_KEY")
-    if key_file:
-        path = Path(os.path.expanduser(key_file))
-        if not path.exists():
-            raise DragonError(f"no API key file at {path}")
-        api_key = path.read_text().strip()
-    cacert = args.cacert or settings.get("cacert")
-    endpoint = Endpoint(
-        url=args.endpoint or settings.get("endpoint") or DEFAULT_ENDPOINT,
-        model=args.model or settings.get("model") or DEFAULT_MODEL,
-        api_key=api_key,
-        cacert=os.path.expanduser(cacert) if cacert else None,
+    endpoint = _endpoint(
+        settings,
+        url=args.endpoint,
+        model=args.model,
+        key_file=args.api_key_file,
+        cacert=args.cacert,
+        default_url=DEFAULT_ENDPOINT,
+        default_model=DEFAULT_MODEL,
+        env_key="DRAGON_PICK_API_KEY",
     )
+    # The second model, for a blind comparison: its own `pick.against:` section,
+    # or just another model at the same endpoint.
+    against = settings.get("against") or {}
+    if isinstance(against, str):
+        against = {"model": against}
+    endpoint_b = None
+    if args.against or args.against_endpoint or against:
+        endpoint_b = _endpoint(
+            {**settings, **against} if not against.get("endpoint") else against,
+            url=args.against_endpoint,
+            model=args.against,
+            default_url=endpoint.url,
+            default_model=endpoint.model,
+            env_key="DRAGON_PICK_API_KEY",
+        )
+        if not (against.get("endpoint") or args.against_endpoint):
+            endpoint_b.api_key, endpoint_b.cacert = endpoint.api_key, endpoint.cacert
+    retriever = None
+    if args.retrieve or settings.get("retrieve"):
+        if config is None:
+            raise DragonError("--retrieve needs a config: the index is built from its corpus")
+        retriever = _retriever(config)
     if_busy = args.if_busy or ("ask" if sys.stdin.isatty() else "next")
     serve(
         endpoint,
@@ -483,6 +568,94 @@ def cmd_pick(args: argparse.Namespace) -> int:
         port=args.port,
         open_browser=not args.no_open,
         if_busy=if_busy,
+        endpoint_b=endpoint_b,
+        retriever=retriever,
+    )
+    return 0
+
+
+def cmd_index(args: argparse.Namespace) -> int:
+    import time
+
+    from dragon.retrieve import Index, embedder, passages
+
+    config = _config(args)
+    directory = _index_dir(config)
+    endpoint = _embed_endpoint(config)
+    items = passages(_corpus(config))
+    if not items:
+        raise DragonError("the corpus has no text to index")
+    previous = None
+    if not args.rebuild:
+        try:
+            previous = Index.load(directory)
+        except (DragonError, OSError, ValueError, KeyError, TypeError):
+            previous = None  # a missing or half-written index is rebuilt from scratch
+
+    def progress(done: int, total: int) -> None:
+        print(f"\r  embedded {done}/{total}", end="", flush=True)
+
+    print(f"index: {len(items)} passages, embedding with {endpoint.describe()}")
+    started = time.time()
+    index, embedded = Index.build(
+        items, embedder(endpoint), model=endpoint.model, previous=previous, progress=progress
+    )
+    if embedded:
+        print()
+    index.save(directory)
+    reused = len(items) - embedded
+    print(
+        f"  {embedded} embedded, {reused} unchanged, in {time.time() - started:.0f}s → {directory}"
+    )
+    return 0
+
+
+def cmd_ask(args: argparse.Namespace) -> int:
+    import random
+
+    from dragon.pick import DEFAULT_ENDPOINT, DEFAULT_MODEL, complete
+    from dragon.retrieve import brief
+
+    config = _config(args)
+    question = args.question
+    if question in (None, "-"):
+        question = sys.stdin.read()
+    question = (question or "").strip()
+    if not question:
+        raise DragonError("nothing to ask")
+    retriever = _retriever(config, k=args.k)
+    hits = retriever.find(question)
+    if args.sources or not args.quiet:
+        for h in hits:
+            print(f"  {h.score:.4f}  {h.passage.where}  ({', '.join(h.why)})", file=sys.stderr)
+    if args.sources:
+        return 0
+
+    settings = config.raw.get("retrieval") or {}
+    writer = settings.get("writer") or config.raw.get("pick") or {}
+    endpoint = _endpoint(
+        writer,
+        url=args.endpoint,
+        model=args.model,
+        key_file=args.api_key_file,
+        cacert=args.cacert,
+        default_url=DEFAULT_ENDPOINT,
+        default_model=DEFAULT_MODEL,
+        env_key="DRAGON_PICK_API_KEY",
+    )
+    temperature = args.temp if args.temp is not None else float(writer.get("temperature", 0.5))
+    max_tokens = args.max_tokens or int(writer.get("max_tokens", 2500))
+    if not args.quiet:
+        print(f"  → {endpoint.describe()}\n", file=sys.stderr)
+    print(
+        complete(
+            endpoint,
+            retriever.system(config.system_prompt),
+            brief(question, hits),
+            temperature=temperature,
+            seed=random.randrange(1, 2**31),
+            max_tokens=max_tokens,
+        )
     )
     return 0
 
@@ -629,7 +802,29 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["ask", "next", "kill", "fail"],
         help="what to do if the port is taken (default: ask at a terminal, next otherwise)",
     )
+    s.add_argument("--against", metavar="MODEL", help="draft B from this model, blind")
+    s.add_argument("--against-endpoint", metavar="URL", help="…at this endpoint, if not A's")
+    s.add_argument(
+        "--retrieve", action="store_true", help="send the passages of your writing that match"
+    )
     s.set_defaults(func=cmd_pick)
+
+    s = sub.add_parser("index", help="embed the corpus in passages, for retrieval")
+    s.add_argument("--rebuild", action="store_true", help="embed everything, not only what changed")
+    s.set_defaults(func=cmd_index)
+
+    s = sub.add_parser("ask", help="an answer from your own writing")
+    s.add_argument("question", nargs="?", help="the question or brief, or - for stdin")
+    s.add_argument("--sources", action="store_true", help="list the passages found, and stop")
+    s.add_argument("--k", type=int, help="how many passages (default 6)")
+    s.add_argument("--endpoint", help="the writing model's base URL (default: retrieval.writer)")
+    s.add_argument("--model", help="the writing model")
+    s.add_argument("--api-key-file", help="a file holding a bearer token for the endpoint")
+    s.add_argument("--cacert", help="a CA certificate for an endpoint with its own")
+    s.add_argument("--temp", type=float, help="sampling temperature (default 0.5)")
+    s.add_argument("--max-tokens", type=int, help="default 2500: reasoning models think first")
+    s.add_argument("-q", "--quiet", action="store_true", help="the answer only")
+    s.set_defaults(func=cmd_ask)
 
     s = sub.add_parser("card", help="print the model card that publish would upload")
     s.add_argument("--flavour", choices=["adapter", "fused", "gguf"], default="adapter")

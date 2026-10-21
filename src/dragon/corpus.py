@@ -57,6 +57,7 @@ def load(config: Config) -> list[Document]:
         docs.extend(loader(config, source))
     for doc in docs:
         doc.holdout = doc.key in config.holdout
+        doc.aliases += config.aliases.get(doc.key, [])
     return docs
 
 

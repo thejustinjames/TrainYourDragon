@@ -63,6 +63,7 @@
   .hint { color: var(--dim); font-size: 13px; margin: 8px 0 0; }
   .status { color: var(--dim); font-size: 13px; }
   .status.err { color: var(--coral); }
+  .sources { color: var(--dim); font-size: 13px; margin: 10px 0 0; line-height: 1.5; }
   [hidden] { display: none !important; }
   footer { background: var(--foot-bg); color: var(--foot-ink); padding: 26px 22px 22px; margin-top: 10px; }
   footer .foot-top { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
@@ -101,6 +102,7 @@
       <button class="primary" id="go">Two drafts<kbd>⌘↵</kbd></button>
       <span class="status" id="status"></span>
     </div>
+    <p class="sources" id="sources" hidden></p>
   </section>
 
   <section id="boxA">
@@ -157,7 +159,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let round = null;   // {prompt, a, b, seeds}
+let round = null;   // {round, prompt, a, b, seeds}
 let choice = null;
 
 async function api(path, body) {
@@ -169,7 +171,8 @@ async function api(path, body) {
 }
 
 function showInfo(i) {
-  $('model').textContent = i.model + (i.system ? '' : ' · no system prompt');
+  $('model').textContent = i.model + (i.retrieval ? ` · notes: ${i.retrieval}` : '')
+    + (i.system ? '' : ' · no system prompt');
   const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
   $('count').textContent = `${i.count} saved · ${n(i.pairs, 'training pair', 'training pairs')}`;
   $('where').textContent = `Saved to ${i.out} · temperature ${i.temperature}`;
@@ -181,9 +184,9 @@ function setDraft(slot, text, cls, meta = '') {
   $('meta' + slot).textContent = meta;
 }
 
-async function draft(slot, prompt) {
+async function draft(slot, id) {
   setDraft(slot, 'Writing…', 'waiting');
-  const d = await api('/api/draft', {prompt});
+  const d = await api('/api/draft', {round: id, slot});
   setDraft(slot, d.text, '', `${d.seconds}s · seed ${d.seed}`);
   return d;
 }
@@ -196,7 +199,15 @@ async function go() {
   $('boxA').classList.remove('chosen'); $('boxB').classList.remove('chosen');
   $('go').disabled = true; $('status').className = 'status'; $('status').textContent = 'Asking for two drafts…';
   const started = Date.now();
-  const results = await Promise.allSettled([draft('A', prompt), draft('B', prompt)]);
+  let r;
+  try { r = await api('/api/round', {prompt}); } catch (e) {
+    $('go').disabled = false;
+    $('status').className = 'status err'; $('status').textContent = e.message;
+    return;
+  }
+  $('sources').hidden = !r.sources.length;
+  $('sources').textContent = r.sources.length ? 'From your writing: ' + r.sources.join('; ') : '';
+  const results = await Promise.allSettled([draft('A', r.round), draft('B', r.round)]);
   $('go').disabled = false;
   const failed = results.find(r => r.status === 'rejected');
   if (failed) {
@@ -205,7 +216,7 @@ async function go() {
     return;
   }
   const [a, b] = results.map(r => r.value);
-  round = {prompt, a: a.text, b: b.text, seeds: [a.seed, b.seed]};
+  round = {round: r.round, prompt, a: a.text, b: b.text, seeds: [a.seed, b.seed]};
   $('status').textContent = `Both drafts in ${Math.round((Date.now() - started) / 1000)}s.`;
   $('verdict').hidden = false;
 }
@@ -214,10 +225,12 @@ async function save(edited) {
   const body = {...round, choice, edited: edited || null};
   $('save').disabled = true;
   try {
-    showInfo(await api('/api/choice', body));
+    const i = await api('/api/choice', body);
+    showInfo(i);
     $('editor').hidden = true; $('verdict').hidden = true;
     $('status').className = 'status';
-    $('status').textContent = 'Saved. Change the prompt or ask again for two more.';
+    $('status').textContent = 'Saved. ' + (i.reveal ? `A was ${i.reveal.a}, B was ${i.reveal.b}. ` : '')
+      + 'Change the prompt or ask again for two more.';
     round = null;
   } catch (e) {
     $('savestatus').className = 'status err'; $('savestatus').textContent = e.message;

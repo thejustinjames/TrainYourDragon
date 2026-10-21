@@ -108,8 +108,9 @@ material it is handed. `dragon write --notes` exists for exactly this: your
 notes carry the substance, the adapter carries the voice.
 
 **Retrieval, if you need answers rather than drafts.** Search your own corpus,
-put the passages in the prompt, and let the model write from them. That is a
-different tool from this one and it should be: it can cite, and this cannot.
+put the passages in the prompt, and let the model write from them.
+`dragon index` and `dragon ask` do this from the same config; see
+[Answers from your own writing](retrieval.md).
 
 **Recall pairs, in moderation.** Turn them on, cap them with a number rather
 than `true` if your corpus is small, and treat them as a way of stopping the

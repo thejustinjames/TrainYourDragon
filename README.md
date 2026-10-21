@@ -146,9 +146,24 @@ dragon pick --pairs dpo.jsonl # your verdicts as chosen/rejected pairs
 The same prompt twice, with different seeds. Pick the better draft, call it a
 tie, or say both are poor, and correct the winner if you like. Every verdict is
 saved locally, and an edit counts most: your version is preferred over both
-drafts. A few hundred of them are the data for preference tuning, which
+drafts. `--against MODEL` makes it a blind comparison of two models, and
+`--retrieve` gives both the same passages of your writing. A few hundred of them are the data for preference tuning, which
 teaches the model what fine-tuning cannot: what you would rather it did not
 write. [docs/pick.md](docs/pick.md).
+
+## Answers from your own writing
+
+```bash
+dragon index                    # the corpus in passages, embedded (Ollama's bge-m3)
+dragon ask "What is Lantern?"   # an answer written from the passages that match
+```
+
+The adapter knows how you write and very little of what you wrote. Retrieval
+supplies the rest at the moment of asking: the passages of your corpus that
+match the question go in front of the model, with an instruction to take its
+facts from them and nowhere else. Keywords and names are ranked alongside the
+embedding, so a product found by its acronym is found.
+[docs/retrieval.md](docs/retrieval.md).
 
 ## Use it from other tools
 
@@ -197,6 +212,7 @@ is not.
 - [Training](docs/training.md) — hyperparameters, the loss curve, which checkpoint
 - [Observability studio](docs/studio.md) — watching a run in the browser
 - [Picking the better draft](docs/pick.md) — preference data from your own verdicts
+- [Answers from your own writing](docs/retrieval.md) — retrieval over the corpus
 - [Serving and exporting](docs/serving.md) — endpoint, LM Studio, Ollama
 - [Hugging Face](docs/hugging-face.md) — publishing, access, another machine
 - [Responsible use](docs/responsible-use.md)

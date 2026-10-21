@@ -92,6 +92,7 @@ class Config:
     sources: list[Source]
     exclude: set[str]
     holdout: set[str]
+    aliases: dict[str, list[str]]
 
     valid_fraction: float
     max_words: int
@@ -189,6 +190,7 @@ class Config:
             sources=sources,
             exclude=set(corpus.get("exclude") or []),
             holdout=set(corpus.get("holdout") or []),
+            aliases=_aliases(corpus.get("aliases")),
             valid_fraction=float(dataset.get("valid_fraction", 0.06)),
             max_words=int(dataset.get("max_words_per_example", 1300)),
             seed=int(dataset.get("seed", 7)),
@@ -243,6 +245,18 @@ def _source(entry: Any, index: int) -> Source:
         language=entry.get("language"),
         min_words=int(entry.get("min_words", 30)),
     )
+
+
+def _aliases(value: Any) -> dict[str, list[str]]:
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise DragonError("config: corpus.aliases should map a slug to a list of names")
+    out = {}
+    for slug, names in value.items():
+        names = [names] if isinstance(names, str) else list(names or [])
+        out[str(slug)] = [str(n).strip() for n in names if str(n).strip()]
+    return out
 
 
 def _merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
